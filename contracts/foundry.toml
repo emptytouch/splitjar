@@ -1,0 +1,41 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+optimizer = true
+optimizer_runs = 200
+
+# ── 版本定死(2026-09-21 W2 实测后决定)──────────────────────────
+#
+# ⚠️ **`evm_version` 必须显式写 `cancun`,不能留空。**
+#
+# Foundry 1.7.1 的默认值是 **`osaka`**(最新 Fusaka 版),而 **Avalanche Fuji
+# 不支持 Osaka**。这是 9/21 用 opcode 探针在真实 Fuji 上实测出来的:
+#
+#     PUSH0   (Shanghai)  ✅        MCOPY / TSTORE / BLOBHASH (Cancun)  ✅
+#     CLZ     (Osaka)     ❌  invalid opcode: opcode 0x1e not defined
+#
+# 留空的后果是**最难查的那一类**:合约能部署成功(部署代码是数据),
+# 却在某个调用路径上撞到无效 opcode 而 revert,报错还指不到配置。
+# 探针的做法(不需要私钥,`cast call --create` 把 opcode 直接当 init code 跑)
+# 记在 README 的"复现"一节。
+#
+# 选 `cancun` 而不是 `shanghai`:Cancun 实测可用,且含 `PUSH0` —— 换回 shanghai
+# 会让 W2 测出的 gas 数字整体偏大,§12.2 的表就得重测。
+#
+# `solc_version` 一并不 pin 了:0.8.35 已实际编译通过,定死才能让评委
+# `forge build` 出来的字节码和我们测 gas 用的完全一致。
+#
+# ⚠️ 这里**不写私钥**。部署走环境变量:
+#     export FUJI_RPC_URL=... && export DEPLOYER_PRIVATE_KEY=...
+#     forge script script/Deploy.s.sol --rpc-url fuji \
+#       --private-key "$DEPLOYER_PRIVATE_KEY" --broadcast
+# 方案 §6.2:私钥仅存环境变量,绝不入库。
+
+solc_version = "0.8.35"
+evm_version = "cancun"
+
+[rpc_endpoints]
+fuji = "${FUJI_RPC_URL}"

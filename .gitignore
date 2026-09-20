@@ -1,0 +1,42 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+dist-ssr/
+*.local
+
+# env —— 私钥与 projectId 绝不入库(见方案 §6.2)
+.env
+.env.*
+!.env.example
+
+# vercel
+.vercel
+
+# foundry(W2 起)
+contracts/out/
+contracts/cache/
+# lib/ 是 forge install 拉下来的依赖,不入库 —— 复现方式写在 contracts/README.md
+contracts/lib/
+# 只留真实部署记录,不留 dry-run —— 模拟结果没有证据价值。
+#
+# ⚠️ 必须用 `**` 而不是 `*`。真实路径是
+#     contracts/broadcast/Deploy.s.sol/43113/dry-run/
+# 中间隔了**两层**,而 gitignore 的 `*` **不跨 `/`**,所以
+# `contracts/broadcast/*/dry-run/` 一条都匹配不到 —— 这条规则原本是坏的,
+# 2026-09-21 推送前用 `git check-ignore` 逐条验的时候才发现。
+contracts/broadcast/**/dry-run/
+
+# editor / os
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# logs
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*

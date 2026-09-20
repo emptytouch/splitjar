@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0a0a0d;
+  --color-surface: #131318;
+  --color-surface-2: #1a1a21;
+  --color-line: #26262f;
+  --color-line-soft: #1e1e26;
+  --color-muted: #8b8b96;
+
+  /* Avalanche 红 —— 主办方生态的视觉锚点 */
+  --color-accent: #e84142;
+  --color-accent-soft: #ff6b6c;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100%;
+  /* 顶部一抹极淡的红光,给深色底一点纵深 —— 别调亮,亮了就俗 */
+  background:
+    radial-gradient(1100px 520px at 50% -12%, rgba(232, 65, 66, 0.1), transparent 68%),
+    var(--color-ink);
+  background-attachment: fixed;
+  color: #f4f4f6;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 尊重系统的"减少动态效果"设置(方案 §15 可访问性要求) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 数字统一用等宽 + 表格数字,避免跳动 */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
