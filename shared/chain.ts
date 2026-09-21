@@ -37,6 +37,32 @@ export const USDC = {
 }
 
 /**
+ * 已部署的 `CreatorSplitter`(Fuji,2026-09-21 部署)。
+ *
+ * ⚠️ **这里必须是纯常量,不能写 `import.meta.env`** —— 本文件两端共用,
+ * 而服务端(Node)里根本没有 `import.meta`。想让"克隆下来就能跑"成立,
+ * 就得把默认值放在这,由两端**各自**读自己的环境变量来覆盖:
+ *
+ *   前端  `import.meta.env.VITE_SPLITTER_ADDRESS ?? DEPLOYED_SPLITTER`
+ *   服务端 `serverEnv('SPLITTER_ADDRESS') ?? DEPLOYED_SPLITTER`
+ *
+ * 前端 `src/lib/rpc.ts` 的 `?? 'https://…'` 就是这个先例。
+ */
+export const DEPLOYED_SPLITTER = '0xDe9b3090263e20ebD5b3795F0199B500f6da72f5' as Address
+
+/**
+ * 上面那个合约**部署所在的高度** —— 看板 `eth_getLogs` 的 `fromBlock` 起点。
+ *
+ * 不从 0 开始扫:部署之前的区块不可能有我们的事件,白扫等于白等。
+ * 合约只能从部署那一刻起产生事件,所以这是**正确且最小**的起点。
+ *
+ * 2026-09-21 实测公共 Fuji RPC **不限制 `getLogs` 范围**(10 万块一次查完也成功),
+ * 所以这一版不需要分页、不需要索引器(方案 §10 的"方案 A")。
+ * 顺带:这个常数也是 W5/W8 服务端事件索引的起点,不要另写一份。
+ */
+export const DEPLOY_BLOCK = 58_513_443n
+
+/**
  * 3 方 `pay()` 的 gas 估算,**用于把 gasPrice 换算成"每笔成本"**。
  *
  * ## 付款路径长什么样(先纠正一处我此前写错的说法)

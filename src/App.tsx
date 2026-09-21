@@ -1,79 +1,61 @@
-import { useAccount } from 'wagmi'
-import { Balances } from './components/Balances'
-import { ChainProbe } from './components/ChainProbe'
-import { AppShell, Card, PageHeader, Placeholder } from './components/Shell'
-import { CHAIN } from '../shared/chain'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { AppShell } from './components/Shell'
+import { ConsolePage } from './pages/ConsolePage'
+import { CreatePage } from './pages/CreatePage'
+import { DashboardPage } from './pages/DashboardPage'
+import { PayPage } from './pages/PayPage'
 
-/** W1 的完成定义,直接长在页面上 —— 打开就知道还差哪一步(开发计划 W1) */
-function Checklist() {
-  const { isConnected, chainId } = useAccount()
-  const onFuji = isConnected && chainId === CHAIN.id
-
-  const items: Array<[boolean, string]> = [
-    [true, '页面构建通过'],
-    [isConnected, '连上钱包'],
-    [onFuji, `在 ${CHAIN.name} 上`],
-  ]
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-      {items.map(([done, label]) => (
-        <span key={label} className="flex items-center gap-2 text-xs">
-          <span className={done ? 'text-emerald-400' : 'text-muted'}>{done ? '✓' : '○'}</span>
-          <span className={done ? 'text-neutral-300' : 'text-muted'}>{label}</span>
-        </span>
-      ))}
-      <span className="ml-auto text-[11px] text-muted">W1 完成定义 · 开发计划</span>
-    </div>
-  )
-}
-
+/**
+ * 路由表 —— 方案 §14.1 定义的那五条,这一版落地其中四条。
+ *
+ * | 路由 | 角色 | W3 |
+ * |---|---|---|
+ * | `/` | 通用 | 创作者控制台(§14.1 的落地页留到 W7) |
+ * | `/create` | 创作者 | ✅ |
+ * | `/p/:id` | 买家 | ✅ **移动端主战场** |
+ * | `/dashboard` | 创作者 | ✅ |
+ * | `/unlock/:id` | 买家 | ⬜ W5(存储与门禁) |
+ *
+ * ## 为什么壳在这一层分
+ *
+ * `/p/:id` 用 `BuyerShell`(窄、无创作者导航),其余三个用 `AppShell`(宽、带页签)。
+ * 分在路由这一层而不是各自页面里,是为了让"哪条路由属于哪个角色"一眼可见 ——
+ * 混在页面内部就得到处翻才知道付费页到底有没有套控制台的导航。
+ */
 export default function App() {
   return (
-    <AppShell>
-      <PageHeader
-        title="创作者控制台"
-        subtitle={
-          <>
-            定好价格和分账比例,上传内容,拿到一个付费页。买家付稳定币,钱按比例
-            <span className="text-neutral-300">直达</span>各方钱包 —— 无平台抽成,无资金池。
-          </>
+    <Routes>
+      {/* 买家页:自己的壳 */}
+      <Route path="/p/:id" element={<PayPage />} />
+
+      {/* 创作者页:控制台的壳 */}
+      <Route
+        path="/"
+        element={
+          <AppShell>
+            <ConsolePage />
+          </AppShell>
         }
-        badge={
-          <span className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-line bg-surface px-3.5 py-1.5 text-[11px] text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-            {CHAIN.name} · chainId {CHAIN.id}
-          </span>
+      />
+      <Route
+        path="/create"
+        element={
+          <AppShell>
+            <CreatePage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <AppShell>
+            <DashboardPage />
+          </AppShell>
         }
       />
 
-      <div className="space-y-5">
-        <Card title="账户" hint="演示账户的状态,以及自动读取的 Fuji 链上参数">
-          <Balances />
-        </Card>
-
-        <div className="grid gap-5 lg:grid-cols-3">
-          <Card
-            title="链上探针"
-            hint="用钱包实付口径结算一笔分账的 gas,它决定演示定价"
-            className="lg:col-span-2"
-          >
-            <ChainProbe />
-          </Card>
-
-          <Card title="Agent 接入" hint="机器支付路径">
-            <Placeholder note="W7 起 —— /api/catalog + HTTP 402 报价" />
-          </Card>
-        </div>
-
-        <Card title="你的内容" hint="创建、定价、分账比例、上下架">
-          <Placeholder note="W3 起 —— 创建付费内容 + 生成付费页与二维码" />
-        </Card>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-line-soft bg-surface/40 px-5 py-4">
-        <Checklist />
-      </div>
-    </AppShell>
+      {/* 未匹配的一律回控制台 —— 静态托管的 SPA rewrite 会把任意路径都送到这里 */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }

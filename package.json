@@ -15,8 +15,10 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.103.1",
+    "qrcode.react": "^4.2.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
     "viem": "^2.56.8",
     "wagmi": "^3.7.7"
   },

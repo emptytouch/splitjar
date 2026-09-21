@@ -126,7 +126,8 @@ export function ChainProbe() {
       )}
 
       <p className="border-t border-line-soft pt-4 text-[11px] leading-relaxed text-muted">
-        ⚠️ {ESTIMATED_PAY_GAS.toLocaleString()} gas 是**抽样上界**,不是实测;W2 部署后
+        ⚠️ {ESTIMATED_PAY_GAS.toLocaleString()} gas 是
+        <span className="text-neutral-300">抽样上界</span>,不是实测;W2 部署后
         必须用 <code className="text-neutral-400">forge script</code> 实测替换,并填进方案
         §12.2 的表格。链:{CHAIN.name} · {CHAIN.id}
       </p>
