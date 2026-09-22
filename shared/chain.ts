@@ -105,3 +105,21 @@ export const ESTIMATED_PAY_GAS = 250_000n
  *  机制说错了:真基础费只有 10 wei,那 1 nAVAX 是钱包自己加的 tip。)
  */
 export const WALLET_DEFAULT_TIP = 1_000_000_000n
+
+/**
+ * RPC 主 / 备的**默认端点**(方案 §15 / 开发计划 5.2)。
+ *
+ * ⚠️ **两端都要用这两个默认值,所以不能各写一份。** 服务端门禁读链
+ * (`server/chain.ts`)和网页自己读链(`src/lib/rpc.ts`)是**两条独立的链路**
+ * —— 服务端读的是"我们配的 RPC",浏览器读的是网页配的。默认值不一致的话,
+ * 会出现"网页说买了、服务端说没买"这种最难排查的分歧。
+ *
+ * 覆盖方式仍然按两端各自的规矩来(见本文件顶部 `DEPLOYED_SPLITTER` 的注释):
+ *   前端 `import.meta.env.VITE_RPC_PRIMARY ?? DEFAULT_RPC_PRIMARY`
+ *   服务端 `serverEnv('RPC_PRIMARY') ?? DEFAULT_RPC_PRIMARY`
+ *
+ * 候选端点的可用性在 9/22 实测后固化进环境变量。默认值是 Ava Labs 官方
+ * 测试网 RPC(最可靠的那个)+ PublicNode 兜底。
+ */
+export const DEFAULT_RPC_PRIMARY = 'https://api.avax-test.network/ext/bc/C/rpc'
+export const DEFAULT_RPC_BACKUP = 'https://avalanche-fuji-c-chain-rpc.publicnode.com'

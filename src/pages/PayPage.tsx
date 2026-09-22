@@ -10,6 +10,7 @@ import { buildShareUrl, getRememberedContent, readTitleParam } from '../lib/cont
 import { formatBps, formatUsdc, previewShares } from '../lib/units'
 import { explorerAddress, shortAddress } from '../lib/links'
 import { normalizeContentId } from '../lib/splitter'
+import { describeBlock } from '../lib/payMachine'
 import { usePayFlow } from '../hooks/usePayFlow'
 
 /**
@@ -122,6 +123,33 @@ export function PayPage() {
   const content = flow.content
   const price = content?.price
 
+  // 被拦下时,状态机自己声明了**出路是什么**。主按钮该不该在场,照它判,
+  // 不另写一份 reason 清单 —— 两份清单迟早会对不上。
+  const recovery = flow.state.k === 'blocked' ? describeBlock(flow.state.reason).recovery : null
+
+  // ① 出路是『下载』(「你已经买过了」) —— 该做的是下载,而 `PayStatus`
+  //    已经给了下载按钮。再摆一个同样醒目的「重新检查」,只会把视线从
+  //    正确的动作上分走。
+  //
+  // ⚠️ 这条以前不显眼,因为这个状态只在点过付款之后才出现;闸门把它提到了首屏。
+  const downloadIsTheAction = recovery?.k === 'download'
+
+  // ② 出路是『没有出路』 —— **按钮干脆不要渲染**。
+  //
+  // 2026-09-23 由用户看出:一个**已下架**的内容,新买家还能看到一颗写着
+  // 「重新检查」的按钮。他问得对 —— 再检查一万次,这内容也不会重新变成
+  // 可付款:`pay()` 第 214 行 `if (!c.active) revert ContentInactive`,
+  // 付款是**必定 revert** 的。摆一颗按了只会打脸的按钮,比什么都不摆更糟。
+  //
+  // 实际影响面只有 `content-inactive` 一个:另外三个 `none`
+  // (未连钱包 / 网络不对 / 内容不存在)在这之前早被别的分支接走了 ——
+  // 前两者渲染的是 `ConnectButton`,后者是那张「内容不存在」的卡片,都到不了这里。
+  //
+  // 而 `retry`(归属读失败)和 `faucet`(余额/燃料不足)的出路是『再查一次』,
+  // 那正是这个按钮该干的事 —— 所以它们**照旧**渲染。
+  // (前提是它真的去查:以前它只把状态闪一下,见 usePayFlow 的 `start`。)
+  const noWayOut = recovery?.k === 'none'
+
   return (
     <BuyerShell>
       {flow.isReading ? (
@@ -162,9 +190,21 @@ export function PayPage() {
           </div>
 
           {/* ── 状态与主按钮 ─────────────────────────────────── */}
-          <PayStatus state={flow.state} needsApprove={flow.needsApprove} />
+          {/*
+            contentId 必须传下去 —— 付款成功和「你已经买过了」两种状态里,
+            `PayStatus` 都要渲染下载按钮(W5)。它已经在上面被
+            `normalizeContentId` **归一化成小写**了,而服务端的 nonce
+            是按 contentId 绑定的:大小写不一致会让刚拿到的凭证就报
+            「与内容不匹配」。
+          */}
+          <PayStatus
+            state={flow.state}
+            needsApprove={flow.needsApprove}
+            contentId={contentId}
+            filenameBase={title}
+          />
 
-          {flow.state.k !== 'success' && (
+          {flow.state.k !== 'success' && !downloadIsTheAction && !noWayOut && (
             <>
               {!isConnected ? (
                 <div className="space-y-3">
@@ -211,13 +251,29 @@ export function PayPage() {
             </p>
           )}
 
-          {/* ── 二维码:只在宽屏。手机打开时它自己就是那个页面 ── */}
-          <div className="hidden justify-center border-t border-line-soft pt-6 sm:flex">
-            <ShareQr
-              url={buildShareUrl(contentId, title)}
-              caption="用手机扫这个码,在手机上完成付款"
-            />
-          </div>
+          {/* ── 二维码:只在宽屏。手机打开时它自己就是那个页面 ──
+              ⚠️ 它下面写的是「用手机扫这个码,**完成付款**」—— 所以只有
+              **现在确实付得了款**时它才成立。以前这里没有任何状态守卫,
+              于是一个已下架的内容,新买家照样看到二维码(用户 2026-09-23
+              看截图提出)。扫过去也付不了:`pay()` 会 revert `ContentInactive`。
+
+              `k === 'idle'` 正是"付得了款"这个条件:闸门放行、或页面自己
+              接管的两种情形(没连钱包 / 网络不对 —— 那两种恰恰**最该**给码,
+              桌面用户扫一下就能用手机上有钱包的浏览器打开)。其余每一态
+              都付不了:已购/已下架/余额不足/查询中/等待签名/上链中/失败。
+
+              ⚠️ `failed` 也藏,这一条**不是顺手**,是必须:
+              `receipt-timeout` 意味着**交易很可能已经成功**(收据回来了但
+              `purchases` 标记没读到)。那种时候还摆一个"扫码完成付款",
+              等于请用户**再付一次**。宁可少给一个入口。 */}
+          {flow.state.k === 'idle' && (
+            <div className="hidden justify-center border-t border-line-soft pt-6 sm:flex">
+              <ShareQr
+                url={buildShareUrl(contentId, title)}
+                caption="用手机扫这个码,在手机上完成付款"
+              />
+            </div>
+          )}
         </div>
       )}
     </BuyerShell>

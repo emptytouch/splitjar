@@ -4,8 +4,9 @@ import { useAccount, usePublicClient, useWriteContract } from 'wagmi'
 import { CHAIN } from '../../shared/chain'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { formatUsdc } from '../lib/units'
-import { AVAX_FAUCET, explorerTx, shortHash } from '../lib/links'
+import { AVAX_FAUCET, explorerTx } from '../lib/links'
 import { shortReason } from '../lib/payErrors'
+import { Panel, Spinner, TxLink } from './TxPanel'
 import {
   INITIAL_CLAIM,
   claimReducer,
@@ -200,51 +201,6 @@ export function ClaimPending({
 
       <ClaimPanel state={state} />
     </>
-  )
-}
-
-/** 状态面板 —— 结构照抄 `PayStatus` 的 `Panel`,配色也一致 */
-function Panel({
-  tone,
-  children,
-}: {
-  tone: 'work' | 'warn' | 'bad' | 'good'
-  children: React.ReactNode
-}) {
-  const tones = {
-    work: 'border-line bg-surface-2/60',
-    warn: 'border-amber-400/30 bg-amber-400/[0.06]',
-    bad: 'border-accent/35 bg-accent/[0.07]',
-    good: 'border-emerald-400/30 bg-emerald-400/[0.06]',
-  } as const
-
-  return (
-    <div className={`mt-3 rounded-xl border px-4 py-3.5 text-sm leading-relaxed ${tones[tone]}`}>
-      {children}
-    </div>
-  )
-}
-
-function Spinner() {
-  return (
-    <span
-      className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-line border-t-accent"
-      role="status"
-      aria-label="处理中"
-    />
-  )
-}
-
-function TxLink({ hash }: { hash: Hex }) {
-  return (
-    <a
-      href={explorerTx(hash)}
-      target="_blank"
-      rel="noreferrer"
-      className="underline decoration-line underline-offset-2 hover:decoration-accent"
-    >
-      <span className="font-mono tnum">{shortHash(hash)}</span>
-    </a>
   )
 }
 

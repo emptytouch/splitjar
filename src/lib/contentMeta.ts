@@ -23,7 +23,9 @@ import type { Hex } from 'viem'
  *
  * 方案 §10 描述的正解是 **Vercel KV**("体验模式的 demo-pay 在代发交易时
  * 顺手把易读记录写进 KV,前端优先读 KV,缺失时回退链上 getLogs")。
- * 但那要先有真实 Vercel 部署 + 开通 KV,属于 W8。**W5/W8 再把它落地。**
+ * 但那要先有真实 Vercel 部署 + 开通 KV,属于 W8。**W5 没做这件事** ——
+ * 那一步接的是上传归属(`server/kv.ts` 的 `claimUploader`),与标题无关。
+ * 标题写进 KV 仍然留给 W8。
  */
 
 const LS_KEY = 'splitjar.content.v1'

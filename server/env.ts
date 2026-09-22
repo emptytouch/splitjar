@@ -23,41 +23,62 @@
  * 登记表。`when` 只是给人看的排期提示,不参与逻辑。
  *
  * 新增服务端变量时**必须**加进这里,否则 `serverEnv()` 拿不到它。
+ *
+ * ⚠️ `when` 列 2026-09-23(W5 期间)整体校正过一次 —— 原来 5 条写的排期**都偏晚**,
+ * 会让人以为"W5 还用不到"。凡是 W5 就要用的,这里一律标 W5。
  */
 export const SERVER_ENV = [
   {
     name: 'BLOB_READ_WRITE_TOKEN',
-    when: 'W6 · 私密内容存储(Vercel Blob,store 创建时选 private)',
+    when: 'W5 · 私有 store(内容)。写入凭证不进前端,由 handleUpload 签受限 token',
+    required: true,
+  },
+  {
+    /**
+     * ⚠️ **双下划线是刻意的,不要"顺手改成" `PUBLIC_READ_WRITE_TOKEN`。**
+     *
+     * Vercel 注入 Blob 凭证时变量名是**固定**的(`BLOB_READ_WRITE_TOKEN`),
+     * 所以接第二个 store 必然撞名 —— 只能连到 development 把真值抠出来,
+     * 再用**我们自己起的名字**手工 add。这个名字就是当时起的,已经部署上去了。
+     * 改名 = 线上那份失效,而且失效方式是`undefined`(静默,不报错)。
+     */
+    name: 'PUBLIC__READ_WRITE_TOKEN',
+    when: 'W5 · 公开 store(预览图,CDN 直出)。名字见上方注释,**别改**',
+    required: true,
+  },
+  {
+    name: 'SPLITTER_ADDRESS',
+    when: 'W5 · 服务端读链校验付款(前端另有一份 VITE_ 的)',
+    required: true,
+  },
+  {
+    name: 'RPC_PRIMARY',
+    when: 'W5 · 服务端读链主端点',
+    required: true,
+  },
+  {
+    name: 'RPC_BACKUP',
+    when: 'W5 · 服务端读链备用端点',
+    required: false,
+  },
+  {
+    /**
+     * ⚠️ 名字**不用改**。库从 `@vercel/kv`(2024-12 废弃)换成 `@upstash/redis`,
+     * 但 `Redis.fromEnv()` 对 `UPSTASH_REDIS_REST_*` 和 `KV_REST_API_*`
+     * 两套名字都认 —— 换库是纯配置动作,不动代码。(2026-09-23 核实)
+     */
+    name: 'KV_REST_API_URL',
+    when: 'W5 · nonce(本包)+ 限额(W6)+ 402 防重放(W7)共用',
+    required: true,
+  },
+  {
+    name: 'KV_REST_API_TOKEN',
+    when: 'W5 · 同上,与 KV_REST_API_URL 成对',
     required: true,
   },
   {
     name: 'QUOTE_HMAC_SECRET',
     when: 'W7 · 签/验 402 报价,防篡改',
-    required: true,
-  },
-  {
-    name: 'SPLITTER_ADDRESS',
-    when: 'W7 · 服务端读链校验付款(前端另有一份 VITE_ 的)',
-    required: true,
-  },
-  {
-    name: 'RPC_PRIMARY',
-    when: 'W7 · 服务端读链主端点',
-    required: true,
-  },
-  {
-    name: 'RPC_BACKUP',
-    when: 'W7 · 服务端读链备用端点',
-    required: false,
-  },
-  {
-    name: 'KV_REST_API_URL',
-    when: 'W8 · 402 报价防重放',
-    required: true,
-  },
-  {
-    name: 'KV_REST_API_TOKEN',
-    when: 'W8 · 402 报价防重放',
     required: true,
   },
 ] as const

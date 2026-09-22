@@ -1,4 +1,5 @@
 import type { Hex } from 'viem'
+import { UnlockButton } from './UnlockButton'
 import {
   describeBlock,
   describeFailure,
@@ -55,7 +56,16 @@ function TxLink({ hash }: { hash: Hex }) {
 }
 
 /** 把所有"出路"渲染成按钮/链接。`Recovery` 是判别联合,加新类型编译器会提醒 */
-function RecoveryRow({ recovery }: { recovery: Recovery }) {
+function RecoveryRow({
+  recovery,
+  contentId,
+  filenameBase,
+}: {
+  recovery: Recovery
+  contentId: Hex
+  /** 下载下来那个文件叫什么(不含扩展名)。见 `UnlockButton` 的 props */
+  filenameBase?: string
+}) {
   switch (recovery.k) {
     case 'retry':
       // **这里故意不渲染按钮。**
@@ -87,12 +97,9 @@ function RecoveryRow({ recovery }: { recovery: Recovery }) {
       )
 
     case 'download':
-      // 下载页是 W5 的事。这一版**不做假按钮** —— 说清楚比假装能点强
-      return (
-        <span className="text-xs leading-relaxed text-muted">
-          下载功能在 W5 开放。这一版先去上面的链接确认付款已在链上。
-        </span>
-      )
+      // W5 兑现 —— 之前那句"下载功能在 W5 开放"的占位换成真的入口。
+      // 这是**买家拿到东西的唯一途径**,所以它必须是主按钮,不是一行小字。
+      return <div className="mt-1"><UnlockButton contentId={contentId} filenameBase={filenameBase} /></div>
 
     case 'none':
       return null
@@ -143,9 +150,26 @@ function Hint({ children }: { children: React.ReactNode }) {
 export function PayStatus({
   state,
   needsApprove,
+  contentId,
+  filenameBase,
 }: {
   state: PayState
   needsApprove: boolean
+  /**
+   * 解锁需要它 —— 但它**不在签名消息里由组件决定**,而是由
+   * `useUnlockFlow` 组装时放进 EIP-712 消息(见 `shared/unlock.ts`)。
+   * 这里传的只是"要解锁哪一份内容"。
+   */
+  contentId: Hex
+  /**
+   * 下载下来那个文件叫什么(**不含扩展名** —— 扩展名要等拿到响应才知道,
+   * 由 `lib/download.ts` 按 `Content-Type` 定)。
+   *
+   * 一路从付费页串下来,因为标题是**付费页**从 `?t=` / 本地记忆里读出来的,
+   * 这里不重复读一遍 —— 两处各读一次,迟早会有一处忘了归一化。
+   * 缺省时 `UnlockButton` 退回用 contentId。
+   */
+  filenameBase?: string
 }) {
   switch (state.k) {
     case 'idle':
@@ -218,6 +242,9 @@ export function PayStatus({
     case 'success':
       // 唯一能产生这个状态的路径是 reducer 的 `confirmed` —— 而它只在
       // 回链上读到 purchases == true 之后才被派发。没有任何"看起来像成功"的旁路。
+      //
+      // ⚠️ 「内容已解锁」这句只有在**下面真给出了下载入口**之后才成立。
+      // 所以在 W5 之前这句话是虚的 —— 现在它兑现了。
       return (
         <Panel
           tone="good"
@@ -231,6 +258,9 @@ export function PayStatus({
           <Hint>
             交易 <TxLink hash={state.hash} /> · 钱已按预设比例直达各收款方钱包。
           </Hint>
+          <div className="mt-3.5">
+            <UnlockButton contentId={contentId} filenameBase={filenameBase} />
+          </div>
         </Panel>
       )
 
@@ -240,7 +270,7 @@ export function PayStatus({
         <Panel tone="warn" title={<Title>{d.title}</Title>}>
           {d.hint && <Hint>{d.hint}</Hint>}
           <div className="mt-3">
-            <RecoveryRow recovery={d.recovery} />
+            <RecoveryRow recovery={d.recovery} contentId={contentId} filenameBase={filenameBase} />
           </div>
         </Panel>
       )
@@ -258,7 +288,7 @@ export function PayStatus({
             </p>
           )}
           <div className="mt-3">
-            <RecoveryRow recovery={d.recovery} />
+            <RecoveryRow recovery={d.recovery} contentId={contentId} filenameBase={filenameBase} />
           </div>
         </Panel>
       )

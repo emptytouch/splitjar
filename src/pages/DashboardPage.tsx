@@ -1,171 +1,41 @@
-import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import type { Address, Hex } from 'viem'
-import { useAccount, usePublicClient, useReadContract } from 'wagmi'
+import { useAccount, useReadContract } from 'wagmi'
 import { Card, PageHeader } from '../components/Shell'
 import { ConnectButton } from '../components/ConnectButton'
 import { ClaimPending } from '../components/ClaimPending'
-import { DEPLOY_BLOCK } from '../../shared/chain'
+import { ActiveToggle } from '../components/ActiveToggle'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { explorerTx, shortAddress, shortHash } from '../lib/links'
 import { formatUsdc } from '../lib/units'
-import { listRememberedContents } from '../lib/contentMeta'
+import { useMyContents } from '../hooks/useMyContents'
 
 /**
- * `/dashboard` —— W3 最小版。
+ * `/dashboard` —— 收入看板 + **我的内容**(含上下架)。
  *
  * 上游范围:「`getLogs` 按 creator + 合约地址过滤」。方案 §10 的方案 A
  * (MVP 零额外基建):前端直接 `getLogs` 渲染,不依赖任何索引器。
  *
- * ## `fromBlock` 用部署高度,不从 0 扫
+ * ## 数据查询已经搬走了
  *
- * 合约只能从部署那一刻起产生事件,所以 `DEPLOY_BLOCK` 是**正确且最小**的起点。
- * 2026-09-21 实测公共 Fuji RPC 不限制 `getLogs` 范围(10 万块一次查完也成功),
- * 所以这一版不需要分页、不需要索引器。等事件多到扫不动时再上 W8 的 KV。
+ * 2026-09-23 起,这一页的数据不再自己查 —— 抽到了 `hooks/useMyContents.ts`,
+ * 因为控制台(`/`)要显示同一份内容的摘要(开发计划 §12.2)。
+ * **一个判断写两遍必然漂移**,所以两个页面共用同一个 hook(同一个 `queryKey`,
+ * react-query 自己去重,从控制台点过来不会重扫一遍链)。
  *
- * ## 谁是"我的内容"
+ * ## 上下架开关也是在这一页
  *
- * `ContentRegistered` 里有 `indexed creator`,直接按 `args.creator` 过滤 ——
- * 这是链上的事实,不依赖本地记录。
- * **标题**是另一回事:合约不存标题,只能从本机缓存取(见 lib/contentMeta.ts)。
+ * 方案 §5.1 要求创作者可 `setContentActive(contentId, false)`,但此前
+ * **全仓库零调用点** —— 内容一旦创建就永远无法下架。开关放在这里而不是
+ * 控制台,是因为**列表在这里**:上下架天然长在每一行上,不需要新路由,
+ * 也不用动已冻结的 §8.1 接口。
+ *
+ * ⚠️ 配套改动:`payGate.ts` 里归属判断必须排在下架判断**之前**,否则
+ * 买过的人在下架后会失去下载入口 —— 那正好违反"下架不影响已购"这条语义。
+ * 两处是一件事的两半,见 `ActiveToggle` 文件头。
  */
-
-type Sale = {
-  contentId: Hex
-  payer: Address
-  txHash: Hex
-  blockNumber: bigint
-  total: bigint
-  myShare: bigint
-}
-
-type ContentRow = {
-  contentId: Hex
-  price: bigint
-  txHash: Hex
-  blockNumber: bigint
-  title: string
-  sales: Sale[]
-  earned: bigint
-}
-
-/**
- * 区块号 → 时间的缓存。同一批销售常常落在少数几个区块里,
- * 每个唯一区块只查一次。上限 24 次 —— 看板不该为了显示时间
- * 打出几十个 RPC 请求(公共端点会限流,方案 §15)。
- */
-async function blockTimes(
-  client: NonNullable<ReturnType<typeof usePublicClient>>,
-  numbers: bigint[],
-): Promise<Map<string, Date>> {
-  const unique = [...new Set(numbers.map(String))].slice(0, 24)
-  const out = new Map<string, Date>()
-  await Promise.all(
-    unique.map(async (n) => {
-      try {
-        const b = await client.getBlock({ blockNumber: BigInt(n) })
-        out.set(n, new Date(Number(b.timestamp) * 1000))
-      } catch {
-        // 取不到时间就不显示时间 —— 不能让一个装饰性的字段拖垮整个看板
-      }
-    }),
-  )
-  return out
-}
-
 export function DashboardPage() {
   const { address, isConnected } = useAccount()
-  const client = usePublicClient()
-
-  const query = useQuery({
-    queryKey: ['dashboard', SPLITTER_ADDRESS, address],
-    enabled: Boolean(client && address),
-    refetchOnMount: 'always',
-    queryFn: async (): Promise<{ rows: ContentRow[]; times: Map<string, Date> }> => {
-      const c = client!
-
-      // ① 我创建的内容 —— 直接按 indexed creator 过滤,链上事实
-      const registered = await c.getContractEvents({
-        address: SPLITTER_ADDRESS,
-        abi: creatorSplitterAbi,
-        eventName: 'ContentRegistered',
-        args: { creator: address },
-        fromBlock: DEPLOY_BLOCK,
-        toBlock: 'latest',
-      })
-
-      const mine = new Map<Hex, { price: bigint; txHash: Hex; blockNumber: bigint }>()
-      for (const log of registered) {
-        const id = log.args.contentId
-        if (!id) continue
-        mine.set(id, {
-          price: log.args.price ?? 0n,
-          txHash: log.transactionHash!,
-          blockNumber: log.blockNumber!,
-        })
-      }
-
-      // ② 所有分账事件,再按"是不是我创建的 contentId"筛。
-      //
-      // 为什么不给 getLogs 传 contentId 过滤:那要对每个 contentId 单独查一次。
-      // 这些内容总共也没几件,一次全查完再在内存里筛更省请求。
-      // (等到事件量真的上来,这一条就该换成 W8 的 KV 索引)
-      const allSplits = await c.getContractEvents({
-        address: SPLITTER_ADDRESS,
-        abi: creatorSplitterAbi,
-        eventName: 'PaymentSplit',
-        fromBlock: DEPLOY_BLOCK,
-        toBlock: 'latest',
-      })
-
-      const rows: ContentRow[] = []
-      const remembered = new Map(listRememberedContents().map((r) => [r.contentId, r.title]))
-
-      for (const [contentId, meta] of mine) {
-        const sales: Sale[] = []
-
-        for (const log of allSplits) {
-          if (log.args.contentId !== contentId) continue
-
-          // 分账事件里**自带** recipients/amounts,所以不必再读一次 getContent
-          // —— 直接看我这个地址在第几位,取对应的金额
-          const recipients = log.args.recipients ?? []
-          const amounts = log.args.amounts ?? []
-          const idx = recipients.findIndex(
-            (r) => r.toLowerCase() === address!.toLowerCase(),
-          )
-          if (idx === -1) continue // 这笔跟我无关
-
-          sales.push({
-            contentId,
-            payer: log.args.payer!,
-            txHash: log.transactionHash!,
-            blockNumber: log.blockNumber!,
-            total: amounts.reduce((a, b) => a + b, 0n),
-            myShare: amounts[idx] ?? 0n,
-          })
-        }
-
-        sales.sort((a, b) => Number(b.blockNumber - a.blockNumber))
-        rows.push({
-          contentId,
-          price: meta.price,
-          txHash: meta.txHash,
-          blockNumber: meta.blockNumber,
-          title: remembered.get(contentId) ?? '',
-          sales,
-          earned: sales.reduce((a, s) => a + s.myShare, 0n),
-        })
-      }
-
-      rows.sort((a, b) => Number(b.blockNumber - a.blockNumber))
-      const times = await blockTimes(
-        c,
-        rows.flatMap((r) => r.sales.map((s) => s.blockNumber)),
-      )
-      return { rows, times }
-    },
-  })
+  const query = useMyContents()
 
   // 待提取余额(W4 的 withdraw 全链路在那一版做,这里只如实显示)
   const pending = useReadContract({
@@ -180,6 +50,7 @@ export function DashboardPage() {
   const times = query.data?.times ?? new Map<string, Date>()
   const totalEarned = rows.reduce((a, r) => a + r.earned, 0n)
   const totalSales = rows.reduce((a, r) => a + r.sales.length, 0)
+  const delisted = rows.filter((r) => !r.active).length
 
   return (
     <>
@@ -226,7 +97,11 @@ export function DashboardPage() {
           {/* ── 我的内容 ─────────────────────────────────────── */}
           <Card
             title="我的内容"
-            hint="按 ContentRegistered 事件里的 creator 过滤 —— 这是链上事实"
+            hint={
+              delisted > 0
+                ? `按 ContentRegistered 事件里的 creator 过滤 · ${delisted} 件已下架`
+                : '按 ContentRegistered 事件里的 creator 过滤 —— 这是链上事实'
+            }
             action={
               <button
                 type="button"
@@ -272,8 +147,16 @@ export function DashboardPage() {
                   <li key={r.contentId} className="rounded-xl border border-line-soft bg-surface-2/40 p-4">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                       <div className="min-w-0">
-                        <p className="truncate text-sm text-neutral-100">
-                          {r.title || <span className="text-muted">未命名内容</span>}
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-100">
+                          <span className="truncate">
+                            {r.title || <span className="text-muted">未命名内容</span>}
+                          </span>
+                          {/*
+                            已下架的状态必须比标题更早被看到 —— 否则创作者会疑惑
+                            "为什么没人买"。方案 §14.2 要求买家侧显示"已下架",
+                            创作者侧同理:他自己也得知道。
+                          */}
+                          {!r.active && <StatusBadge label="已下架" tone="warn" />}
                         </p>
                         <Link
                           to={`/p/${r.contentId}${r.title ? `?t=${encodeURIComponent(r.title)}` : ''}`}
@@ -291,6 +174,16 @@ export function DashboardPage() {
                         </p>
                       </div>
                     </div>
+
+                    {/*
+                      ⚠️ 直接子元素,不能在 flex 行里 —— 它内部除了按钮还有一个
+                      会占满宽度的状态说明面板。理由见 `ActiveToggle` 的注释。
+                    */}
+                    <ActiveToggle
+                      contentId={r.contentId}
+                      active={r.active}
+                      onChanged={() => void query.refetch()}
+                    />
 
                     {r.sales.length > 0 && (
                       <ul className="mt-3 space-y-1.5 border-t border-line-soft pt-3">
@@ -332,5 +225,20 @@ export function DashboardPage() {
         </div>
       )}
     </>
+  )
+}
+
+/** 行内状态小标签 */
+function StatusBadge({ label, tone }: { label: string; tone: 'warn' }) {
+  const tones = {
+    warn: 'border-amber-400/35 bg-amber-400/[0.08] text-amber-300/90',
+  } as const
+
+  return (
+    <span
+      className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-normal ${tones[tone]}`}
+    >
+      {label}
+    </span>
   )
 }

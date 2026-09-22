@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAddress, type Hex } from 'viem'
-import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
+import { useAccount } from 'wagmi'
 import { Card, PageHeader } from '../components/Shell'
+import { FilePick } from '../components/FilePick'
 import { ShareQr } from '../components/ShareQr'
 import { ConnectButton } from '../components/ConnectButton'
 import { CHAIN } from '../../shared/chain'
 import { buildShareUrl, normalizeTitle, rememberContent, TITLE_MAX } from '../lib/contentMeta'
 import { explorerTx, shortHash } from '../lib/links'
-import { classifyError, shortReason } from '../lib/payErrors'
-import { describeFailure, type FailReason } from '../lib/payMachine'
-import { SPLITTER_ADDRESS, creatorSplitterAbi, generateContentId } from '../lib/splitter'
+import { generateContentId } from '../lib/splitter'
+import { usePublishFlow } from '../hooks/usePublishFlow'
+import {
+  PUBLISH_STEP_COPY,
+  describeFileProblem,
+  describePublishFailure,
+  draftOf,
+} from '../lib/publishMachine'
+import type { PublishState } from '../lib/publishMachine'
 import {
   AmountError,
   formatBps,
@@ -52,42 +59,6 @@ import {
  */
 const MAX_RECIPIENTS = 10
 
-type CreateState =
-  | { k: 'editing' }
-  | { k: 'signing' }
-  | { k: 'pending'; hash: Hex }
-  | { k: 'done'; contentId: Hex; hash: Hex }
-  | { k: 'failed'; reason: FailReason; detail?: string }
-
-type Action =
-  | { type: 'sign' }
-  | { type: 'sent'; hash: Hex }
-  | { type: 'done'; contentId: Hex; hash: Hex }
-  | { type: 'fail'; reason: FailReason; detail?: string }
-  | { type: 'reset' }
-
-function reducer(state: CreateState, action: Action): CreateState {
-  switch (action.type) {
-    case 'sign':
-      return { k: 'signing' }
-    case 'sent':
-      return { k: 'pending', hash: action.hash }
-    case 'done':
-      return { k: 'done', contentId: action.contentId, hash: action.hash }
-    case 'fail':
-      // 只从"进行中"落到失败 —— 迟到的回调不该覆盖已完成的界面
-      return state.k === 'signing' || state.k === 'pending'
-        ? { k: 'failed', reason: action.reason, detail: action.detail }
-        : state
-    case 'reset':
-      return { k: 'editing' }
-    default: {
-      const never: never = action
-      return never
-    }
-  }
-}
-
 /**
  * 一位协作者。
  *
@@ -118,7 +89,27 @@ function PctSuffix() {
 
 export function CreatePage() {
   const { address, isConnected, chainId } = useAccount()
-  const [state, dispatch] = useReducer(reducer, { k: 'editing' })
+
+  /**
+   * ⚠️ `contentId` 必须是 **state,不是 `useMemo`**。
+   *
+   * 合约里 `createContent` 有 `if (_contents[contentId].exists) revert
+   * ContentAlreadyExists` —— 所以**同一个 id 只能建一次**。
+   * W4 用的是 `useMemo(() => generateContentId(), [])`,于是点「再创建一个」
+   * 之后 id 没变,第二笔创建**必定 revert**,而用户看到的只是"创建失败"。
+   * 这是 W5 修掉的一个真 bug。
+   *
+   * 而 pathname(`content/<contentId>`)也由它决定,同一个 id 还意味着
+   * 往一条已经写过的路径再传一次 —— 平台侧 `allowOverwrite: false` 会拒。
+   *
+   * ⚠️ 但**重试失败时不能换 id**:文件可能已经传上去了,换 id 等于
+   * 让它指向一个不存在的 blob。所以只有 `restart`(明确"重新开始")
+   * 才换,`publish`(重试)不换。
+   */
+  const [contentId, setContentId] = useState<Hex>(() => generateContentId())
+
+  const flow = usePublishFlow(contentId)
+  const publishState = flow.state
 
   const [title, setTitle] = useState('')
   const [price, setPrice] = useState('0.2')
@@ -130,14 +121,6 @@ export function CreatePage() {
     { id: 2, addr: '', pct: '10' },
   ])
   const nextRowId = useRef(3)
-
-  // 生成一次就固定住 —— 重试时**必须复用同一个 id**,
-  // 否则每次点重试都是一个新内容,用户会以为创建了多件
-  const contentId = useMemo(() => generateContentId(), [])
-  const fired = useRef(false)
-
-  const write = useWriteContract()
-  const receipt = useWaitForTransactionReceipt({ hash: write.data })
 
   // ── 表单校验。全部走字符串,不做浮点往返(见 lib/units.ts)──────────
   //
@@ -244,7 +227,6 @@ export function CreatePage() {
   }, [title, price, myPct, rows, address])
 
   const onFuji = isConnected && chainId === CHAIN.id
-  const canSubmit = parsed.ok && onFuji && state.k !== 'signing' && state.k !== 'pending'
 
   /**
    * 字段「被碰过」之后才显示它的错误。
@@ -263,6 +245,27 @@ export function CreatePage() {
     setTouched((t) => (t[field] ? t : { ...t, [field]: true }))
   const shown = (field: string) => (touched[field] ? parsed.errors[field] : undefined)
 
+  /**
+   * 选文件那一刻的门禁结果。
+   *
+   * ⚠️ 它**不进状态机**,与"标题不能为空"是同一类 —— 表单校验。
+   * 理由:`checkFile` 判的是"这个文件根本不该被选中",发现时机器还没启动;
+   * 塞进状态机会让 `failed` 这个状态多出五种和网络/链毫无关系的含义。
+   *
+   * 它是一句**现成的文案**,不是在选文件时就算好存下来的 —— 因为上限之类的
+   * 数字会随时间变(见 `shared/storage.ts` 的 `MAX_UPLOAD_BYTES`),
+   * 存文案等于把那一刻的数字冻在界面里。
+   */
+  const [fileProblem, setFileProblem] = useState<string | null>(null)
+
+  const pickFile = async (f: File) => {
+    setFileProblem(null)
+    const problem = await flow.pickFile(f)
+    // 文案只有一处出处(`describeFileProblem` 的 switch),
+    // 页面不自己拼字符串 —— 那样两边的说法迟早会分叉
+    if (problem) setFileProblem(describeFileProblem(problem))
+  }
+
   const addRow = () => {
     if (1 + rows.length >= MAX_RECIPIENTS) return
     setRows((rs) => [...rs, { id: nextRowId.current++, addr: '', pct: '' }])
@@ -271,64 +274,51 @@ export function CreatePage() {
   const patchRow = (id: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
 
-  // ── 写链 ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (state.k !== 'signing' || fired.current) return
-    if (!parsed.ok || parsed.priceWei === null) return
-    fired.current = true
+  // ── 发布 ────────────────────────────────────────────────────────────
 
-    write.writeContract({
-      abi: creatorSplitterAbi,
-      address: SPLITTER_ADDRESS,
-      functionName: 'createContent',
-      // contentHash 这一版仍然传 0:W4 没有内容文件,内容存证要等 W5 上传。
-      // 方案 §8.1 冻结的定义是"内容文件的 keccak256" —— 给它编一个别的语义
-      // (比如哈希标题)会让 W7 的 Agent 脚本与前端产生分叉,那是 §8.1 明令避免的。
-      // (决策记录:W4-实施计划.md 决策 4,选的是"维持 0x0")
-      args: [
-        contentId,
-        parsed.priceWei,
-        `0x${'0'.repeat(64)}` as Hex,
-        parsed.recipients,
-        parsed.splits,
-      ],
+  /**
+   * 创建成功后把标题记在本机 —— 看板和分享链接都靠它。
+   * 合约里没有标题字段(见 lib/contentMeta.ts)。
+   *
+   * ⚠️ 必须放在 effect 里,**不能在 render 期间写 localStorage** ——
+   * 渲染函数随时可能被 React 丢弃重跑(并发渲染),副作用会跟着跑两遍甚至
+   * 跑在一个被丢弃的分支上。`remembered` 去重是因为 **StrictMode 会把这些
+   * effect 跑两遍**(同 `usePayFlow` 的 `fired` 集合)。
+   */
+  const remembered = useRef<Hex | null>(null)
+  const isDone = publishState.k === 'done'
+  useEffect(() => {
+    if (!isDone || remembered.current === contentId) return
+    remembered.current = contentId
+    rememberContent(contentId, parsed.title)
+  }, [isDone, contentId, parsed.title])
+
+  /** 能不能点「创建并上传」—— 表单、网络、文件三样都齐了才行 */
+  const fileReady = publishState.k === 'ready'
+  const busy = publishState.k === 'working'
+  const canSubmit = parsed.ok && onFuji && fileReady && parsed.priceWei !== null
+
+  const submit = () => {
+    if (!canSubmit || parsed.priceWei === null) return
+    void flow.publish({
+      price: parsed.priceWei,
+      recipients: parsed.recipients,
+      splits: parsed.splits,
     })
-  }, [state, parsed, contentId, write])
+  }
 
-  useEffect(() => {
-    if (write.data && state.k === 'signing') dispatch({ type: 'sent', hash: write.data })
-  }, [write.data, state.k])
-
-  useEffect(() => {
-    if (write.error && state.k === 'signing') {
-      dispatch({
-        type: 'fail',
-        reason: classifyError(write.error, 2),
-        detail: shortReason(write.error),
-      })
-    }
-  }, [write.error, state.k])
-
-  useEffect(() => {
-    if (state.k !== 'pending') return
-    if (receipt.isSuccess) {
-      // 创建成功后把标题记在本机 —— 看板和分享链接都靠它。
-      // 合约里没有标题字段(见 lib/contentMeta.ts)
-      rememberContent(contentId, parsed.title)
-      dispatch({ type: 'done', contentId, hash: state.hash })
-    } else if (receipt.isError) {
-      dispatch({
-        type: 'fail',
-        reason: classifyError(receipt.error, 2),
-        detail: shortReason(receipt.error),
-      })
-    }
-  }, [state, receipt.isSuccess, receipt.isError, receipt.error, contentId, parsed.title])
-
+  /**
+   * 重新开始。
+   *
+   * ⚠️ **必须换一个 contentId** —— 合约里 `createContent` 对已存在的 id
+   * 直接 revert,而 pathname 也由 id 决定(同一条路径平台不让写第二次)。
+   * 详见上面 `contentId` 那段注释。
+   */
   const restart = () => {
-    fired.current = false
-    write.reset()
-    dispatch({ type: 'reset' })
+    flow.reset()
+    remembered.current = null
+    setFileProblem(null)
+    setContentId(generateContentId())
   }
 
   const atCap = 1 + rows.length >= MAX_RECIPIENTS
@@ -349,10 +339,26 @@ export function CreatePage() {
       <div className="grid gap-5 lg:grid-cols-5">
         <Card
           title="内容与定价"
-          hint={`标题 / 价格 / 分账(最多 ${MAX_RECIPIENTS} 方)。内容文件与预览图是 W5。`}
+          hint={`标题 / 价格 / 分账(最多 ${MAX_RECIPIENTS} 方)。内容文件会一起上传,指纹上链;预览图还没做。`}
           className="lg:col-span-3"
         >
           <div className="space-y-5">
+            {/*
+              文件放在**最前面** —— 它是"这份内容是什么"的实体,
+              而标题只是给链接用的一句人话。顺序反了的话用户会先想标题,
+              再回头发现文件还没选。
+            */}
+            <FilePick
+              draft={draftOf(publishState)}
+              hashing={publishState.k === 'hashing'}
+              hashingName={publishState.k === 'hashing' ? publishState.file.name : undefined}
+              progress={flow.progress}
+              error={fileProblem ?? undefined}
+              // 发布进行中不让换文件 —— 换了的话传上去的和要上链的就不是同一份
+              disabled={busy}
+              onPick={(f) => void pickFile(f)}
+            />
+
             <div>
               <label className={LABEL} htmlFor="title">
                 标题
@@ -369,7 +375,7 @@ export function CreatePage() {
               <p className="mt-1.5 text-[11px] leading-relaxed text-muted/70">
                 ⚠️ 合约里<span className="text-neutral-300">没有标题字段</span>
                 ,所以标题靠分享链接带走(<code>?t=</code>)。
-                它只用于展示,不影响价格和分账。真正落地要等 W5/W8 的链下存储。
+                它只用于展示,不影响价格和分账。写进服务端存储要等 W8。
               </p>
               {shown('title') && (
                 <p className="mt-1.5 text-[11px] text-accent-soft">{shown('title')}</p>
@@ -579,31 +585,42 @@ export function CreatePage() {
             </div>
 
             {/* ── 状态 ─────────────────────────────────────── */}
-            {state.k === 'signing' && (
-              <p className="text-xs leading-relaxed text-muted">请在钱包里确认这笔创建交易…</p>
-            )}
-            {state.k === 'pending' && (
-              <p className="text-xs leading-relaxed text-muted">
-                已提交,等待上链 ——{' '}
-                <a
-                  href={explorerTx(state.hash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-mono underline decoration-line underline-offset-2 hover:decoration-accent"
-                >
-                  {shortHash(state.hash)}
-                </a>
-              </p>
-            )}
-            {state.k === 'failed' && (
-              <div className="rounded-xl border border-accent/35 bg-accent/[0.07] px-4 py-3">
-                <p className="text-sm text-neutral-100">{describeFailure(state.reason).title}</p>
-                {describeFailure(state.reason).hint && (
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted">
-                    {describeFailure(state.reason).hint}
+            {publishState.k === 'working' && (
+              <div className="rounded-xl border border-line bg-surface-2/60 px-4 py-3.5">
+                <p className="text-sm leading-relaxed text-neutral-100">
+                  {PUBLISH_STEP_COPY[publishState.step].title}
+                </p>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted">
+                  {PUBLISH_STEP_COPY[publishState.step].hint}
+                </p>
+                {publishState.txHash && (
+                  <p className="mt-1.5 text-xs text-muted">
+                    交易{' '}
+                    <a
+                      href={explorerTx(publishState.txHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono underline decoration-line underline-offset-2 hover:decoration-accent"
+                    >
+                      {shortHash(publishState.txHash)}
+                    </a>
                   </p>
                 )}
               </div>
+            )}
+            {publishState.k === 'failed' && (
+              <FailedPanel
+                state={publishState}
+                onRetry={submit}
+                onSkipUpload={() => {
+                  if (parsed.priceWei === null) return
+                  void flow.publish(
+                    { price: parsed.priceWei, recipients: parsed.recipients, splits: parsed.splits },
+                    { skipUpload: true },
+                  )
+                }}
+                onRestart={restart}
+              />
             )}
 
             <div className="mt-auto">
@@ -611,15 +628,26 @@ export function CreatePage() {
                 <ConnectButton variant="block" />
               ) : !onFuji ? (
                 <ConnectButton variant="block" />
-              ) : state.k === 'done' ? (
+              ) : publishState.k === 'done' ? (
                 <div className="space-y-4">
                   <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/[0.06] px-4 py-3">
                     <p className="text-sm text-neutral-100">✓ 已创建并上链</p>
                     <p className="mt-1.5 text-xs leading-relaxed text-muted">
-                      分享下面这个链接或二维码,买家扫码就能付款。
+                      文件已经在存储里,指纹也在链上了。分享下面这个链接或二维码,买家扫码就能付款。
+                    </p>
+                    <p className="mt-1.5 text-xs text-muted">
+                      交易{' '}
+                      <a
+                        href={explorerTx(publishState.txHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono underline decoration-line underline-offset-2 hover:decoration-accent"
+                      >
+                        {shortHash(publishState.txHash)}
+                      </a>
                     </p>
                   </div>
-                  <ShareRow contentId={state.contentId} title={parsed.title} />
+                  <ShareRow contentId={contentId} title={parsed.title} />
                   <button
                     type="button"
                     onClick={restart}
@@ -631,24 +659,28 @@ export function CreatePage() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => dispatch({ type: 'sign' })}
-                  disabled={!canSubmit}
+                  // 失败之后主按钮**不重试** —— 重试的出口在失败面板里(见 FailedPanel)。
+                  // 两处都放会让"跳过上传"和"重试"这两个后果完全不同的动作
+                  // 长得一样近,而选错的代价是白花一笔 gas
+                  // ⚠️ 走不到这里 `k === 'failed'` 的那些情形:`canSubmit` 里含
+                  // `k === 'ready'`,所以按钮能点的唯一可能是 k 就是 ready ——
+                  // 失败态下它必然是灰的(重试的出口在 FailedPanel 里)
+                  onClick={submit}
+                  disabled={!canSubmit || busy}
                   className="w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  {state.k === 'signing'
-                    ? '等待钱包确认…'
-                    : state.k === 'pending'
-                      ? '上链中…'
-                      : state.k === 'failed'
-                        ? '重新检查并再试'
-                        : '创建并上链'}
+                  {busy ? `${PUBLISH_STEP_COPY[publishState.step].title}…` : '创建并上传'}
                 </button>
               )}
 
               {/* 提交按钮点不动时,必须说清楚是哪里没填好 —— 灰着不给理由是最气人的 */}
-              {isConnected && onFuji && !parsed.ok && state.k !== 'done' && (
+              {isConnected && onFuji && publishState.k !== 'done' && publishState.k !== 'failed' && (
                 <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
-                  上面还有 {blockers} 处没填好。
+                  {!parsed.ok
+                    ? `上面还有 ${blockers} 处没填好。`
+                    : !fileReady && !busy
+                      ? '还没选内容文件 —— 没有文件就没法发布。'
+                      : null}
                 </p>
               )}
             </div>
@@ -656,6 +688,101 @@ export function CreatePage() {
         </Card>
       </div>
     </>
+  )
+}
+
+/**
+ * 失败面板 —— **发布这条路上唯一给出路的地方**。
+ *
+ * ## 三个出口,而它们后果完全不同
+ *
+ * ```
+ * 重试        从倒下那一步接上(文件传过了就跳过上传)
+ * 跳过上传    ⚠️ 只在"上传那一步失败"时出现,会写链
+ * 重新开始    换一个 contentId,从头来
+ * ```
+ *
+ * ⚠️ 「跳过上传」必须和「重试」**长得不一样、位置也不挨着** ——
+ * 它是一条"我确定文件已经在上面了"的人工断言,选错了会创建出一条
+ * **没有文件的内容**(买家付了钱下不到东西)。
+ * 所以它只在**真的可能是那种情况**时出现(倒在上传那一步),
+ * 而且要用户主动展开才看得到。
+ */
+function FailedPanel({
+  state,
+  onRetry,
+  onSkipUpload,
+  onRestart,
+}: {
+  state: Extract<PublishState, { k: 'failed' }>
+  onRetry: () => void
+  onSkipUpload: () => void
+  onRestart: () => void
+}) {
+  const d = describePublishFailure(state.reason, state.step, state.uploaded)
+  const [showSkip, setShowSkip] = useState(false)
+
+  // 倒在上传那两步,才存在"其实已经传上去了"这种可能
+  const mayHaveUploaded = state.step === 'authorizing' || state.step === 'uploading'
+
+  return (
+    <div className="rounded-xl border border-accent/35 bg-accent/[0.07] px-4 py-3.5">
+      <p className="text-sm leading-relaxed text-neutral-100">{d.title}</p>
+      {d.hint && <p className="mt-1.5 text-xs leading-relaxed text-muted">{d.hint}</p>}
+      {/* 技术细节只作为附加说明,没有它界面也完整 */}
+      {state.detail && (
+        <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted/70 break-all">
+          {state.detail}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2.5">
+        {d.canRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-xs font-medium text-white transition-colors hover:bg-accent-soft"
+          >
+            {state.uploaded ? '重试(跳过上传,只补交易)' : '重试'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onRestart}
+          className="flex-1 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-xs text-neutral-200 transition-colors hover:border-accent"
+        >
+          {d.canRetry ? '重新开始(换一个内容编号)' : '重新开始'}
+        </button>
+      </div>
+
+      {mayHaveUploaded && (
+        <div className="mt-3 border-t border-line-soft pt-3">
+          {showSkip ? (
+            <div className="space-y-2">
+              <p className="text-[11px] leading-relaxed text-amber-200/90">
+                ⚠️ 只有在你**亲眼看到进度条走完了**、之后才断的情况下才选这个。
+                选错了会创建出一条没有文件的内容 —— 买家付了钱下载不到东西。
+              </p>
+              <button
+                type="button"
+                onClick={onSkipUpload}
+                className="w-full rounded-xl border border-amber-400/35 bg-amber-400/[0.08] px-4 py-2.5 text-xs text-amber-100 transition-colors hover:bg-amber-400/[0.14]"
+              >
+                我确定文件已经传上去了,直接创建
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowSkip(true)}
+              className="text-[11px] text-muted underline decoration-line underline-offset-2 hover:text-neutral-200"
+            >
+              文件其实已经传完了,只是响应丢了?
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -40,8 +40,24 @@ export type BlockReason =
   | 'content-not-found'
   | 'content-inactive'
   | 'already-purchased'
+  | 'ownership-unknown' // 归属读失败 —— 见下方 OWNERSHIP_NOTE
   | 'insufficient-usdc'
   | 'insufficient-avax' // 开发计划 R3:买家无 AVAX 付 gas
+
+/**
+ * ⚠️ `ownership-unknown` 与 `already-purchased` **必须分开**,不能合并成
+ * 「查不到 / 查到了就算买过」。
+ *
+ * 「查不到你的购买记录」时**唯一安全的方向是不放行**:`purchases` 那次读
+ * 失败,页面没有依据说"你没买过",于是不能把付款按钮交出去 —— 用户会被
+ * 引导去签一笔合约必然 revert(`AlreadyPurchased`)的交易,钱不丢,gas 白花。
+ *
+ * 反过来把它当成 `already-purchased` 也是错的:那会告诉一个**从没买过**的
+ * 用户"你已经买过了"并给他一个下载按钮,点下去 /api/unlock 会返回 402。
+ * 一个查不到就编造结论的页面,比一个说"我查不到"的页面更糟。
+ *
+ * (判据是 fail-closed:只有明确读到 `false` 才放行。见 `payGate.ts`。)
+ */
 
 /** 签名 / 上链阶段的失败 */
 export type FailReason =
@@ -224,6 +240,13 @@ export function describeBlock(reason: BlockReason): Description {
       return { title: '该内容已下架', hint: '创作者已停止售卖,如果你之前买过仍可下载。', recovery: { k: 'none' } }
     case 'already-purchased':
       return { title: '你已经买过了', hint: '同一钱包不用重复购买。', recovery: { k: 'download' } }
+    case 'ownership-unknown':
+      // 语气要不一样:这不是"你不能买",是"我这一刻查不到",所以给重试而不是拒绝
+      return {
+        title: '查不到你的购买记录',
+        hint: '链上查询没返回结果。为免你重复付款,先停在这里 —— 稍后重试即可。',
+        recovery: { k: 'retry' },
+      }
     case 'insufficient-usdc':
       return { title: 'USDC 不足', hint: '测试网的 USDC 可以从 Circle 水龙头免费领取。', recovery: { k: 'faucet', what: 'usdc' } }
     case 'insufficient-avax':
