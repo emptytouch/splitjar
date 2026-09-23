@@ -5,6 +5,7 @@ import { DEPLOY_BLOCK } from '../../shared/chain'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { listRememberedContents } from '../lib/contentMeta'
 import { deriveActiveState, isActive } from '../../shared/contentActive'
+import { isAgentAddress } from '../../shared/agentAddresses'
 
 /**
  * 「我创建的内容」—— 控制台和看板**共用**的那份查询(2026-09-23 抽出)。
@@ -49,6 +50,19 @@ export type Sale = {
   blockNumber: bigint
   total: bigint
   myShare: bigint
+  /**
+   * 这笔付款的买家**在不在 agent 白名单里**(W8)。
+   *
+   * ⚠️ 判据是**地址登记**,不是"识别" —— 链上没有 agent 的痕迹可识别:
+   * 人类和 agent 走同一个 `pay()`、发同一个 `PaymentSplit`,而且 `msg.sender`
+   * 就是买家本人(我们故意不实现 x402 代付)。所以界面上只能说
+   * **「按地址白名单判定」**,不能说"自动识别"。见 `shared/agentAddresses.ts`。
+   *
+   * 在**查询里**算而不是在渲染时算:这样"谁是 agent"只有一个定义处,
+   * 页面只负责把 `true` 画成徽章。页面若各自去 `AGENT_ADDRESSES.includes(...)`,
+   * 就又是一个"写两遍必然漂移"的判断(而且漏了大小写归一化还会静默不命中)。
+   */
+  isAgent: boolean
 }
 
 export type ContentRow = {
@@ -207,6 +221,9 @@ export function useMyContents() {
             blockNumber: log.blockNumber!,
             total: amounts.reduce((a, b) => a + b, 0n),
             myShare,
+            // 传进去的 `payer` 是 viem 解出来的 checksum 形态,白名单里可能写的是
+            // 全小写 —— 归一化在 `isAgentAddress` 里做,这里**别自己写 `includes`**。
+            isAgent: isAgentAddress(log.args.payer),
           })
         }
 

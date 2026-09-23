@@ -99,7 +99,26 @@
 > 所以准确的说法是「**复用 x402 的交互形态与报价字段命名**」。
 > **我们不声明"实现了 x402"** —— 完整推演见 `docs/W7-实施计划.md` §〇。
 
-尚未开始:体验模式(W6,已推迟)、**Agent 演示客户端(W8)**、初筛材料(W10)、打磨(W11)。
+**W8 Agent 演示客户端** —— 代码已落地(2026-09-24)。
+
+- [x] **`scripts/agent-buy.mjs`** —— 一个自己发现、自己付款、自己取内容的 agent。
+      **八步全程打印,每个关键值都标来源**(方案 §五 的反造假红线:金额只认 402 的
+      `accepts[0]`,买哪件由脚本自己从 catalog 挑,付款人由私钥推导再回链核对)
+- [x] 前四步(自检 → 发现 → 402 → 报价)**一分钱不花**,`--dry-run` 停在付款那一刻之前
+- [x] **看板给 agent 的付款打 `[Agent]` 徽章** —— 判据是
+      `shared/agentAddresses.json` 的**地址白名单**,与脚本读**同一个文件**
+- [x] `npm run typecheck` + `npm run build` 都过;本机实测(含**负对照**)见
+      `docs/W8-实施计划.md` §六
+- [ ] ⚠️ **第 5–8 步(真花钱那一段)未实测** —— 需要 agent 的私钥,而按方案 §6.2
+      它只在**你自己那个 shell** 里。命令见下面那一节。
+
+> ⚠️ **`[Agent]` 徽章是"按地址白名单判定",不是"自动识别"。**
+> agent 与人类走的是**同一个** `pay(bytes32)`、留下**同一个** `PaymentSplit`,
+> `msg.sender` 就是买家 —— 链上没有留下任何可分辨的痕迹。剩下的办法只有启发式
+> (gas 价、时间簇、地址聚类),全是猜。**如实说边界,好过含糊地说"能识别"。**
+> 完整推演与备选方案见 `docs/W8-实施计划.md` §〇。
+
+尚未开始:体验模式(W6,已推迟)、初筛材料(W10)、打磨(W11)、端到端联调(W9)。
 
 > 完整工作分解见 `docs/开发计划.md`(WBS + 依赖 + 风险)。
 > 产品方案见 `docs/splitjar-product-spec.md`;各工作包的实施记录见 `docs/W3-实施计划.md`
@@ -134,13 +153,61 @@ npm run typecheck   # tsc --noEmit
 npm run build       # 类型检查 + 生产构建
 ```
 
+### 跑一遍 Agent 自主购买(W8)
+
+一个命令,agent 自己走完全程:
+
+```bash
+export AGENT_PRIVATE_KEY=0x…        # ⚠️ 只在当前 shell,用完关窗口。绝不写进 .env
+export AGENT_ADDRESS=0x…            # 可选,给了就与私钥推导的地址交叉核对
+node scripts/agent-buy.mjs --dry-run   # 先演习:停在付款那一刻之前,一分钱不花
+node scripts/agent-buy.mjs             # 真跑:approve + pay + 取内容 + 比哈希
+```
+
+⚠️ 脚本默认打 `http://127.0.0.1:3000`(本机 API),要**先**把服务端跑起来(见下)。
+`--content 0x…` 可以指定买哪一件;不带就由脚本自己从 `/api/catalog` 挑。
+
+前四步(自检 → 发现 → 402 → 报价)不花任何钱,所以 `--dry-run` 之外的参数也可以
+反复跑到第 4 步,只是到那里就会真的发交易。
+
+要让这笔付款在看板上带 `[Agent]` 徽章,把 agent 的地址写进
+`shared/agentAddresses.json`(脚本自检时会把你该粘的那一行直接打出来)。
+
+#### 演示顺序(§16.1 第 7 条要看的那一屏)
+
+三个角色**各一个地址**,缺一不可 —— 人类那一笔和 agent 那一笔必须落在
+**同一个创作者、同一页看板**上,否则"分账比例一致"这句话就没有对照组。
+
+```
+① 创作者 0xAa05f680…  在 /create 建一件并定价(建议 0.1 USDC)
+                       → 拿到付费页链接
+② 人类买家 0x737a8a9E… 打开那个链接,连着钱包点付款(approve + pay)
+③ agent   0x0016486a… node scripts/agent-buy.mjs
+                       → 它自己发现、自己付、自己取内容
+④ 创作者打开 /dashboard:同一件内容下面并排两笔
+                       —— 一笔来自 0x737a8a9E…(人类)
+                       —— 一笔来自 0x0016486a… 且带 [Agent] 徽章
+                       两笔的分账明细格式与比例完全一样
+```
+
+②③ 的顺序**不能换**:反过来也能出徽章,但那时看板上只有 agent 一笔,
+没法当场对比 —— 而对比正是这一条要验的东西。
+
 ### 手动走一遍 Agent 那条路(W7 的完成定义)
 
-Agent 客户端本身是 **W8**(还没写),但整条路现在就能用 `curl` 走完。
+不用脚本,`curl` 也能走完同一条路 —— 每一步在干什么看得更清楚。
 
 ⚠️ **要用 `vercel dev`,不是 `npm run dev`** —— 后者只是 Vite(5173),
 它**不提供 `/api/*`**,打过去一律 404。`vercel dev` 才会把 `api/` 下的文件
 挂成路由(默认 3000)。
+
+⚠️ 还有一个**本机开发拓扑**的坑(2026-09-24 实测):`vercel.json` 里那条
+`rewrites: /((?!api/).*) → /index.html` 在 `vercel dev` 里**也生效** ——
+它把 `/src/main.tsx` 都改写成 index.html,所以 **:3000 上跑不起来前端**。
+本机开发要**两个**:
+- `npx vercel dev --listen 3000` —— 只提供 `/api/*`
+- `npx vite --port 5173` —— 前端页面(而且只能用 `localhost:5173`,
+  vite 只绑了 IPv6 的 `[::1]`,`127.0.0.1:5173` 连不上)
 
 ```bash
 npx vercel dev --listen 3000 --yes
@@ -192,6 +259,8 @@ curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
 │   ├── upload.ts        #  `Upload` 授权(内容/预览图两用,决定落哪个 store)
 │   ├── unlock.ts        #  `Unlock` 授权(人类取内容那条路)
 │   ├── agentPay.ts      #  402 报价 / `X-Payment` / catalog 的线上格式(W7)
+│   ├── agentAddresses.ts#  ⭐ W8 · "谁是 agent"的唯一判据(读下面那份 JSON)
+│   ├── agentAddresses.json # ⭐ W8 · Agent 地址白名单。**公开文件,只放地址**
 │   ├── contentActive.ts #  「最后一条上下架事件即当前状态」的纯推导(W7 从 src/ 挪上来)
 │   ├── contentMeta.ts   #  标题的长度上限与截断规则(两端同一套)
 │   ├── storage.ts       #  Blob 路径规则(内容私有 / 预览图公开)
@@ -213,8 +282,11 @@ curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
 │   ├── kv.ts            #  Upstash Redis:nonce / 402 防重放 / 内容标题
 │   └── quote.ts         #  402 报价的 HMAC 签与验
 │
-├── scripts/             ⭐ 本地跑,不进构建、不进产物 —— **W9 才建,现在还没有**
-│                        #  (见下"四条边界"第三条:Agent 客户端只能放这里)
+├── scripts/             ⭐ 本地跑,**不进构建、不进产物**(见下"四条边界"第三条)
+│   ├── agent-buy.mjs    #  ⭐ W8 · Agent 演示主角:发现 → 402 → 报价 → 付款 → 取内容
+│   └── verify-x402.mjs  #  W7 · 反例矩阵(逐条打服务端,不用钱包)
+│                        #  ⚠️ 这两个是 `.mjs` 而不是 `.ts`:**两个 tsconfig 的
+│                        #     include 都不含 scripts/**,写 .ts 就 import 不到 shared/
 │
 └── contracts/           ⭐ Foundry 独立工具链(Vercel 完全不碰)
 ```

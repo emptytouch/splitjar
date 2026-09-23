@@ -6,6 +6,9 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+# tsc 的增量缓存(`tsc -b` / `incremental` 会生成)。是构建产物,不是源码 ——
+# 2026-09-24 发现它一直没被忽略,只是此前没人跑过会生成它的那条命令。
+*.tsbuildinfo
 
 # env —— 私钥与 projectId 绝不入库(见方案 §6.2)
 .env

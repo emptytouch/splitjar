@@ -8,6 +8,7 @@ import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { explorerTx, shortAddress, shortHash } from '../lib/links'
 import { formatUsdc } from '../lib/units'
 import { useMyContents } from '../hooks/useMyContents'
+import { AGENT_ENTRIES } from '../../shared/agentAddresses'
 
 /**
  * `/dashboard` —— 收入看板 + **我的内容**(含上下架)。
@@ -203,6 +204,12 @@ export function DashboardPage() {
                                 {shortHash(s.txHash, 6, 4)}
                               </a>
                               <span className="font-mono">来自 {shortAddress(s.payer)}</span>
+                              {/*
+                                ⚠️ 徽章只在 `isAgent` 为真时出现 —— 判定在
+                                `useMyContents` 里做(白名单只有一个定义处),
+                                这一页**不做任何地址比较**。见 shared/agentAddresses.ts。
+                              */}
+                              {s.isAgent && <StatusBadge label="Agent" tone="agent" />}
                             </span>
                             <span className="text-muted/70">
                               {times.get(String(s.blockNumber))?.toLocaleString('zh-CN') ?? `块 ${s.blockNumber}`}
@@ -219,8 +226,25 @@ export function DashboardPage() {
 
           <p className="text-[11px] leading-relaxed text-muted/70">
             时间取自区块时间戳;取不到的显示区块号。
-            买家类型标注(人类 / Agent)是 W8 —— 现在两者走的是同一个{' '}
-            <code>PaymentSplit</code> 事件,方案 §10 说得很清楚,看板天然能看到,只差标注。
+            <br />
+            <span className="text-muted">[Agent] 标记按地址白名单判定,不是自动识别。</span>{' '}
+            链上两条路走的是同一个 <code>pay(bytes32)</code> 和同一个{' '}
+            <code>PaymentSplit</code> 事件,而且 <code>msg.sender</code> 就是买家本人
+            —— 本来就没有可识别的痕迹,是谁只能靠登记。
+            {AGENT_ENTRIES.length === 0 ? (
+              <> 名单现在是空的:还没有地址被登记为 agent,所以没人会被标上。</>
+            ) : (
+              <>
+                {' '}名单:{' '}
+                {AGENT_ENTRIES.map((e, i) => (
+                  <span key={e.address}>
+                    {i > 0 && '、'}
+                    <span className="font-mono">{shortAddress(e.address)}</span>
+                    {e.label && `(${e.label})`}
+                  </span>
+                ))}
+              </>
+            )}
           </p>
         </div>
       )}
@@ -229,9 +253,11 @@ export function DashboardPage() {
 }
 
 /** 行内状态小标签 */
-function StatusBadge({ label, tone }: { label: string; tone: 'warn' }) {
+function StatusBadge({ label, tone }: { label: string; tone: 'warn' | 'agent' }) {
   const tones = {
     warn: 'border-amber-400/35 bg-amber-400/[0.08] text-amber-300/90',
+    // 用主办方的红当 accent,和「已下架」的琥珀色拉开 —— 这两个标签会同时出现
+    agent: 'border-accent/40 bg-accent/[0.09] text-accent-soft',
   } as const
 
   return (

@@ -57,8 +57,16 @@ export function BuyerShell({ children }: { children: ReactNode }) {
  * 创作者页面的顶栏。
  *
  * 页签在 W3 从"死的占位"变成真链接 —— **只对已经有页面的才这么做**。
- * `Agent` 仍是灰的:它对应的 `/api/catalog` 是 W7,现在做成能点就是假按钮。
  * W1 里那句「不假装能点」的规矩继续有效,只是适用面缩小了。
+ *
+ * ## `Agent` 那个灰页签去哪了（W8,2026-09-24 删）
+ *
+ * 它原来挂在这儿,note 写着「W7 起」。W7（`/api/catalog` + 402）和 W8（agent 脚本
+ * + 看板徽章）都已交付,而它**永远不会有自己的页面** —— agent 不用网页。
+ *
+ * 删它的理由不是"没时间做",是**它许诺的东西不该存在**:一个网页按钮跑不了 agent,
+ * 因为私钥按方案 §6.2 只存在于跑脚本那个 shell 里,搬到服务端就违反了决策 2。
+ * 留着只会让人以为功能没做完。第三个入口现在长在控制台的「Agent 接入」卡上。
  */
 function TopNav() {
   const tabs = [
@@ -66,7 +74,6 @@ function TopNav() {
     { to: '/create', label: '内容' },
     { to: '/dashboard', label: '收款' },
   ]
-  const soon = { label: 'Agent', note: 'W7 起' }
 
   return (
     <header className="sticky top-0 z-50 border-b border-line-soft bg-ink/75 backdrop-blur-xl">
@@ -94,12 +101,6 @@ function TopNav() {
               {t.label}
             </NavLink>
           ))}
-
-          {/* 还没开工的,保持灰着并说明原因 —— 不做成能点的假页签 */}
-          <span title={`${soon.note}开放`} className="cursor-not-allowed rounded-lg px-3 py-1.5 text-sm text-muted">
-            {soon.label}
-            <span className="ml-1.5 text-[10px] text-muted/60">{soon.note}</span>
-          </span>
         </nav>
 
         <div className="ml-auto">
