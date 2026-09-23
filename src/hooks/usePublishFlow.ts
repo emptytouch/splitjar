@@ -3,7 +3,7 @@ import type { Hex } from 'viem'
 import { useAccount, useSignTypedData, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { uploadPathname } from '../../shared/storage'
-import { isUserRejection, shortReason } from '../lib/payErrors'
+import { RECEIPT_TIMEOUT_MS, isUserRejection, shortReason } from '../lib/payErrors'
 import {
   PUBLISH_INITIAL,
   checkFile,
@@ -100,7 +100,20 @@ export function usePublishFlow(contentId: Hex) {
 
   const { signTypedDataAsync } = useSignTypedData()
   const write = useWriteContract()
-  const receipt = useWaitForTransactionReceipt({ hash: write.data })
+  /**
+   * ⚠️ `timeout` 与 `query.retry` **都必须显式给**,理由见 `RECEIPT_TIMEOUT_MS`:
+   * viem 默认 180 秒,再乘上全局的 `retry: 1` 就是 6 分钟 ——
+   * 用户看到的就是一个转了六分钟、没有任何出口的「上链中…」。
+   *
+   * ⚠️ 发布这条更要紧:这里已经花掉了一次 gas,用户最需要尽快知道"到底成没成"。
+   * 超时会掉进 `chain-timeout`,那条文案是「没等到链上的回执」并且
+   * `canRetry: false` —— 见 `publishMachine.ts`。
+   */
+  const receipt = useWaitForTransactionReceipt({
+    hash: write.data,
+    timeout: RECEIPT_TIMEOUT_MS,
+    query: { retry: false },
+  })
 
   /**
    * 防连点。

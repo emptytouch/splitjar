@@ -10,7 +10,7 @@ import {
 import { USDC } from '../../shared/chain'
 import { INITIAL, payReducer, type PayState, type Step } from '../lib/payMachine'
 import { evaluateGate, type GateInput } from '../lib/payGate'
-import { classifyError, shortReason } from '../lib/payErrors'
+import { RECEIPT_TIMEOUT_MS, classifyError, shortReason } from '../lib/payErrors'
 import { SPLITTER_ADDRESS, creatorSplitterAbi, toContent, type Content } from '../lib/splitter'
 
 /**
@@ -115,7 +115,20 @@ export function usePayFlow(contentId: Hex | null): PayFlow {
 
   // ── 写链 ────────────────────────────────────────────────────────────
   const write = useWriteContract()
-  const receipt = useWaitForTransactionReceipt({ hash: write.data })
+  /**
+   * ⚠️ `timeout` 与 `query.retry` **都必须显式给**,理由见 `RECEIPT_TIMEOUT_MS`:
+   * viem 默认 180 秒,再乘上全局的 `retry: 1` 就是 6 分钟 ——
+   * 用户看到的是一个转了六分钟、没有任何出口的「上链中…」。
+   *
+   * ⚠️ 关掉 react-query 的重试**不是**在削弱重试:`waitForTransactionReceipt`
+   * 自己就用 `retryCount: 6` + 指数退避去扛 RPC 抖动,外面这层是重复的,
+   * 而它在这里唯一实际起的作用是把超时翻倍。
+   */
+  const receipt = useWaitForTransactionReceipt({
+    hash: write.data,
+    timeout: RECEIPT_TIMEOUT_MS,
+    query: { retry: false },
+  })
 
   const contentData = content.data ? toContent(content.data) : undefined
   const price = contentData?.price

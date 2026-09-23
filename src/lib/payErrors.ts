@@ -64,6 +64,35 @@ export function contractErrorName(err: unknown): string | null {
 }
 
 /**
+ * 等一笔交易回执的**上限**(毫秒)。
+ *
+ * ## 为什么必须显式给,不能吃 viem 的默认
+ *
+ * viem 的默认是 **180 秒**,而全局 react-query 开着 `retry: 1`
+ * (见 `src/main.tsx`)—— 两者叠起来是 **6 分钟**。用户看到的就是一个
+ * 转了六分钟、没有任何出口的「上链中…」。
+ *
+ * 2026-09-24 在 Fuji 上实测踩到:一笔广播出去但没被打包的 `pay()`,
+ * 页面就那么停着。等满 6 分钟才会掉进下面的 `receipt-timeout` ——
+ * **文案是对的,只是来得太晚。**
+ *
+ * ## 为什么是 90 秒
+ *
+ * Fuji 出块约 2 秒,正常交易几秒内就有回执。90 秒 ≈ 45 个区块,
+ * 远超任何正常确认,又短到不至于让人以为页面死了。
+ *
+ * ⚠️ **把它调小是安全的**:超时**不等于失败**。`receipt-timeout` 与
+ * `chain-timeout` 两条文案本来就在讲"交易可能已提交,别重复支付,
+ * 先去区块浏览器确认",而且**都不给一键重试**(见 `payMachine.ts` 的
+ * `RECEIPT_TIMEOUT_NOTE`)。所以误报的代价是"让用户多看一眼浏览器链接",
+ * 不是"让用户重付一次"。
+ *
+ * ⚠️ 用它时必须**同时**给 `query: { retry: false }` —— 全局的 `retry: 1`
+ * 会把超时**翻一倍**。两个消费点:`usePayFlow` 与 `usePublishFlow`。
+ */
+export const RECEIPT_TIMEOUT_MS = 90_000
+
+/**
  * 主分类器。
  *
  * `phase` 决定 `insufficient-allowance` 的判断 —— 只有到第 2 笔(pay)才可能
