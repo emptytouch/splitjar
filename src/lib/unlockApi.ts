@@ -54,6 +54,19 @@ export const CODE_TO_REASON: Record<ApiErrorCode, UnlockFailReason | 'step-defau
   // 上传那两条在解锁流程里不该出现;真出现了也是"我们这边不对"
   content_claimed: 'protocol',
   content_not_found: 'protocol',
+  // ── W7 Agent 路径专属的四条 ─────────────────────────────────────────
+  // 人类路径**一个都不会出现**:它走的是签名 + nonce,压根没有 txHash 与报价。
+  // 真冒出来只可能是有人拿 agent 的请求打了这个端点 —— 归"我们这边不对"。
+  // (填 'protocol' 而不是 'unavailable':重试不会有帮助,别提示用户重试。)
+  quote_invalid: 'protocol',
+  quote_expired: 'protocol',
+  payment_not_found: 'protocol',
+  payment_mismatch: 'protocol',
+  payment_replayed: 'protocol',
+  // `content_inactive` **不是** agent 专属 —— 人类付费页也可能撞上
+  // (内容在拿到 nonce 之后被下架)。这时出路是"回列表页",不是"重试",
+  // 所以映射到与 `not_purchased` 相反的语义:不是过期,是这条路封了。
+  content_inactive: 'protocol',
 }
 
 /**

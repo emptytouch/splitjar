@@ -655,6 +655,49 @@ x402 在 EVM 上用 **ERC-3009 `TransferWithAuthorization`**，即"签名授权�
 
 ---
 
+> ### ⚠️ 2026-09-23 追加更正：本节「对齐 x402 V2」是**过度承诺**
+>
+> 上面第 625 行的标题「**标准化：对齐 x402 V2**」与第 629 行「**直接用标准即可**」写得太满。
+> 实测+查证后**改为走 B**，「对齐 x402 V2」**降级为「复用 x402 的交互形态与报价字段命名」**。
+> **本节原文一处未改，更正追加在此。** 完整推演见 [`W7-实施计划.md`](W7-实施计划.md) §〇。
+>
+> **一、A 在接口层不成立。** 第 647 行把 A 列为「推荐先试」，但它与合约语义直接冲突：
+> `CreatorSplitter.sol:223` 是 `usdc.transferFrom(msg.sender, address(this), amount)`，
+> **`msg.sender` 必须是买家本人**；x402 的 `exact` scheme 结算 = 从 payer **直付 `payTo`** 的
+> 普通转账（EIP-3009 或 Permit2），由 facilitator 广播。于是：① `payTo` 填合约 → 钱进得来但
+> **合约没有 ERC-20 收款钩子**去调 `pay()`，不分账、不发 `PaymentSplit`、**无从得知 contentId**；
+> ② facilitator 自己调 `pay()` → `msg.sender` 变成 facilitator，它花自己的钱、被记成 payer，
+> **第 3 条校验直接崩**。两条都不通。
+>
+> **二、能验证"做不到"与"不该做"的区别。** 实测 Fuji USDC **确实支持 EIP-3009**
+> （`0x5425…Bc65`：`version()`=2，`authorizationState` / `TRANSFER_WITH_AUTHORIZATION_TYPEHASH` 都在，
+> `transferWithAuthorization` 用正确编码的 9 个参数调用后 revert 在 `Blacklistable: account is blacklisted`
+> —— 已进入业务逻辑深处，证明函数存在）。所以 A 的第三条路（合约去 `call` USDC 的 EIP-3009）
+> **技术上成立**。**不做它的理由是别的**：合约**无代理、`usdc` 是 `immutable`**（`CreatorSplitter.sol:63`），
+> 加函数 = **换新地址** = 作废演示内容、那笔真实销售、亲手切的下架状态，而 README / 本文档 /
+> `SPLITTER_ADDRESS` / Vercel 生产环境变量全都引用旧地址。
+>
+> **三、最要紧的一条：做成了也仍然不是 x402。** x402 的 `exact` scheme **只有单 payee 转账、
+> 没有 contentId 概念**，容纳不了我们的 N 方分账。拿到的是「B + 一份额外的合约风险」。
+> 而且 x402 的头号卖点「gasless」对我们无价值 —— W8 的 agent 无论如何都要持有 AVAX 付 gas。
+>
+> **四、连"兼容外壳"也不能声称是 x402 实现。** x402 V2 线上格式与本节设想有实质差异：
+> 头部 V2 是 `PAYMENT-SIGNATURE`（非 `X-PAYMENT`），402 内容 V2 放进 `PAYMENT-REQUIRED`**头**（非响应体），
+> `network` 用 CAIP-2，金额字段 V2 是 `amount`/V1 是 `maxAmountRequired`。
+> **而最关键的是信任模型相反**：真 x402 的头里装的是**未广播的签名授权**，
+> 本方案第 587 行的 `X-Payment: {txHash, payer}` 装的是**已广播交易的哈希**。
+> **所以 README 只能写「复用 x402 的交互形态与报价字段命名」，不能写「实现了 x402」。**
+>
+> **五、这不削弱本节第 639 行的论证。** 「补上 Avalanche 原生性的短板」不依赖是否真的接 x402
+> —— Avalanche 是 x402 V2 的一等公民、CAIP-2 `eip155:43113`、生态里有现成 SDK，这些事实不变，
+> 照样可以写进材料。**变的只是措辞强度，不是论证本身。**
+>
+> **六、本节第 651 行「9/26 先花 1 小时评估路径 A」的执行结果：未花那 1 小时。**
+> 理由即上面一、二两条。若评委追问「你试了吗」，答案是
+> 「**论证过为什么不可行，并实测了它唯一可行的实现路径为什么不该现在做**」。
+
+---
+
 ## 10. 链下事件索引机制
 
 链上只 emit 事件，链下扫日志还原业务数据，不读合约 storage。

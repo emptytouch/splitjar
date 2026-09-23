@@ -1,4 +1,5 @@
 import type { Hex } from 'viem'
+import { normalizeTitle } from '../../shared/contentMeta'
 
 /**
  * 内容的**链下易读信息**(目前只有标题)。
@@ -86,16 +87,16 @@ export function forgetContent(contentId: Hex): void {
 }
 
 /**
- * 标题**只用于展示**,所以这里做的是转义而不是校验。
+ * ⚠️ `TITLE_MAX` / `normalizeTitle` **2026-09-23(W7)已挪到 `shared/contentMeta.ts`**,
+ * 本文件不再定义它们。
  *
- * 长度截断是必须的:标题直接进 URL,不限制的话一个几千字的标题
- * 会让二维码密到扫不出来 —— 而二维码正是付费页的主要入口。
+ * 挪的理由:服务端新加的 `POST /api/content-meta` 在写 KV 之前要按**同一套规则**
+ * 规范化标题,而服务端 import 不了 `src/lib/`(这份代码带着 `window`,
+ * 且 `tsconfig.api.json` 不带 DOM)。两个「同一件必须两端一致的事」分家,
+ * 迟早会漂移成"前端截 40、服务端不截"。
+ *
+ * 需要它的地方请直接从 `../../shared/contentMeta` 取。
  */
-export const TITLE_MAX = 40
-
-export function normalizeTitle(raw: string): string {
-  return raw.trim().slice(0, TITLE_MAX)
-}
 
 /**
  * 拼分享链接。

@@ -6,7 +6,8 @@ import { FilePick } from '../components/FilePick'
 import { ShareQr } from '../components/ShareQr'
 import { ConnectButton } from '../components/ConnectButton'
 import { CHAIN } from '../../shared/chain'
-import { buildShareUrl, normalizeTitle, rememberContent, TITLE_MAX } from '../lib/contentMeta'
+import { buildShareUrl, rememberContent } from '../lib/contentMeta'
+import { normalizeTitle, TITLE_MAX } from '../../shared/contentMeta'
 import { explorerTx, shortHash } from '../lib/links'
 import { generateContentId } from '../lib/splitter'
 import { usePublishFlow } from '../hooks/usePublishFlow'
@@ -301,6 +302,10 @@ export function CreatePage() {
   const submit = () => {
     if (!canSubmit || parsed.priceWei === null) return
     void flow.publish({
+      // ⚠️ 用 `parsed.title`(已过 `normalizeTitle`)而不是原始的 `title` ——
+      // 服务端也会再截一次,但两边用同一个值才不会出现"页面上显示的"
+      // 和"catalog 里返回的"不一致
+      title: parsed.title,
       price: parsed.priceWei,
       recipients: parsed.recipients,
       splits: parsed.splits,
@@ -615,7 +620,12 @@ export function CreatePage() {
                 onSkipUpload={() => {
                   if (parsed.priceWei === null) return
                   void flow.publish(
-                    { price: parsed.priceWei, recipients: parsed.recipients, splits: parsed.splits },
+                    {
+                      title: parsed.title,
+                      price: parsed.priceWei,
+                      recipients: parsed.recipients,
+                      splits: parsed.splits,
+                    },
                     { skipUpload: true },
                   )
                 }}
@@ -648,6 +658,19 @@ export function CreatePage() {
                     </p>
                   </div>
                   <ShareRow contentId={contentId} title={parsed.title} />
+                  {/*
+                    ⚠️ 标题没写进服务端 —— **不是失败,是一行提示**。
+                    内容已经上链、钱已经花了,这条只影响 `GET /api/catalog`
+                    里那一格 `title`(会显示成 `null`)。所以它是灰字提示,
+                    不是错误面板,也不给"重试"按钮 —— 收益只是一行展示文字。
+                  */}
+                  {flow.titleSaved === false && (
+                    <p className="text-xs leading-relaxed text-muted">
+                      ⚠️ 标题没能写进服务端 —— 内容本身已经创建成功、可以正常出售和付款,
+                      只是 Agent 的 <code className="font-mono">/api/catalog</code> 里这一件
+                      会没有标题。
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={restart}

@@ -4,11 +4,18 @@ import {
   createPublicClient,
   fallback,
   http,
+  parseEventLogs,
   type Address,
   type Hex,
 } from 'viem'
 import { creatorSplitterAbi } from '../shared/abi/creatorSplitter.js'
-import { CHAIN, DEFAULT_RPC_BACKUP, DEFAULT_RPC_PRIMARY, DEPLOYED_SPLITTER } from '../shared/chain.js'
+import {
+  CHAIN,
+  DEFAULT_RPC_BACKUP,
+  DEFAULT_RPC_PRIMARY,
+  DEPLOYED_SPLITTER,
+  DEPLOY_BLOCK,
+} from '../shared/chain.js'
 import { serverEnv } from './env.js'
 
 /**
@@ -124,4 +131,206 @@ function isContentNotFound(error: unknown): boolean {
   if (!(error instanceof BaseError)) return false
   const reverted = error.walk((e) => e instanceof ContractFunctionRevertedError)
   return reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === 'ContentNotFound'
+}
+
+/* ─────────────────────────── W7 · Agent 路径要读的东西 ─────────────────────────── */
+
+/** 一件内容在链上的、我们关心的那几项 */
+export type ContentInfo = {
+  creator: Address
+  /** 原始单位(USDC 6 位小数) */
+  price: bigint
+  active: boolean
+}
+
+/**
+ * 读一件内容的 `creator / price / active`。**内容不存在返回 `null`。**
+ *
+ * 与 `getContentCreator` 是**两条独立的读**,不是"一个包另一个" ——
+ * 刻意不用 `getContent` 的全量返回值(那条还带着 `recipients` / `splits`
+ * 两个动态数组,解码开销与返回体积都白搭)。这里只要三个字段。
+ *
+ * ⚠️ 失效方向与 `getContentCreator` **完全一致**:只有明确 revert
+ * `ContentNotFound` 才返回 `null`,其它任何错误(RPC 挂、超时)一律**往外抛**。
+ * 把"读不到"当成"不存在"会让一次 RPC 抖动把 `GET /api/content/:id`
+ * 变成 404 —— 而 agent 对 404 的正确反应是放弃,对 503 才是重试。
+ */
+export async function getContentInfo(contentId: Hex): Promise<ContentInfo | null> {
+  try {
+    // ⚠️ viem 对**多返回值**函数返回的是**元组(按位置)**。只解我们需要的三个,
+    // 把 `contentHash` 那格用 `_` 占位 —— 顺序以 `RawContent` 为准,别数错。
+    const [creator, price, , , , active] = await publicClient.readContract({
+      address: SPLITTER_ADDRESS,
+      abi: creatorSplitterAbi,
+      functionName: 'getContent',
+      args: [contentId],
+      blockTag: 'latest',
+    })
+    return { creator, price, active }
+  } catch (error) {
+    if (isContentNotFound(error)) return null
+    throw error
+  }
+}
+
+/**
+ * 从交易收据里取出这笔交易到底付了什么 —— **第 ①②③ 条校验的全部依据**。
+ *
+ * ## ⚠️ 为什么这三条塌缩成一次读(方案没规定,本包定的判据)
+ *
+ * 方案的原文是「`txHash` 已上链且**确认数达标**」+「事件里 `contentId` 一致」
+ * +「事件里 `payer` 一致」。**但"确认数达标"是几个确认,文档从头到尾没有规定。**
+ *
+ * 这里**不引入确认数阈值**,判据换成:
+ *
+ * ```
+ * 收据存在 且 status === 'success'
+ *   → ① 过
+ * 收据里存在 PaymentSplit 日志(其 contentId 由调用方去比对)
+ *   → ② 过(第 ② 条要求日志本身在场,所以收据必然已存在且成功)
+ * 该日志的 payer 由调用方比对
+ *   → ③ 过
+ * ```
+ *
+ * **为什么这样比"N 个确认"好**:确认数是一个**拍出来的数字**,
+ * 而"收据成功 + `PaymentSplit` 日志在场"是**确定性的**。而且第 ② 条本来就
+ * 要求日志在场,所以它把第 ① 条的存在性检查**顺带**满足了 —— 三个检查
+ * 塌缩成一次读,没有额外的等待。
+ *
+ * ⚠️ **代价是没有 reorg 保护。** 一个极深的 reorg 可能让一笔已被读到的交易
+ * 消失,而我们已经把内容交付了。**在 Fuji 演示场景下可以接受**
+ * (Fuji 的 reorg 极罕见,且交付的是短时效 URL)。
+ * **要上主网,这里必须改成"等 N 个确认"** —— 别把这个判据当成可以照搬的。
+ *
+ * ## 返回值
+ *
+ * - `null` —— 没有收据,或收据 `status !== 'success'`(即第 ① 条失败)
+ * - 数组 —— 这笔交易里**所有**的 `PaymentSplit` 日志。正常情况下只有一条
+ *   (`pay()` 只发一次),但一笔交易理论上可以调多次 `pay()`,
+ *   所以返回全部,由调用方按 `contentId` 挑。
+ *
+ * ⚠️ **只读,不做任何判断。** 匹配 `contentId` / `payer` 的策略留在路由里 ——
+ * 这样"哪一条日志算数"是一个能单独测的纯逻辑,而不是藏在一次 RPC 调用后面。
+ *
+ * ## ⚠️ 为什么把 `amounts` 也带出来
+ *
+ * 因为路由要拿 `sum(amounts) === 当前链上价格` 来**替代**"把金额签进报价"那条
+ * 路(推演见 `server/quote.ts` 文件头)。那个和**必然**等于付出去的总额:
+ * 合约 `pay()` 里 `uint256 amount = c.price`,而分账循环把余数归给最后一个
+ * 收款人,`distributed` 最终恰好收敛到 `amount` —— 所以求和与"到底付了多少"
+ * 是同一个数,不需要另存。
+ *
+ * ⚠️ 别在这里就地求和:路由需要的是**每一条日志各自的**金额,
+ * 因为它要挑出属于这件内容的那一条再求和,而不是把一笔交易里所有 `pay()`
+ * 的金额混在一起。
+ */
+export async function getPaymentSplits(txHash: Hex): Promise<
+  Array<{ contentId: Hex; payer: Address; amounts: readonly bigint[]; blockTimeSeconds: number }> | null
+> {
+  const receipt = await publicClient.getTransactionReceipt({ hash: txHash })
+  // `status` 是 `'success' | 'reverted'`。**只认 success** ——
+  // 一笔 revert 掉的交易不该能换到任何东西,哪怕它里面碰巧有日志
+  // (revert 的交易在链上是没有日志的,但这里不做假设)。
+  if (receipt.status !== 'success') return null
+
+  const logs = parseEventLogs({
+    abi: creatorSplitterAbi,
+    logs: receipt.logs,
+    eventName: 'PaymentSplit',
+  })
+  if (logs.length === 0) return []
+
+  // 区块时间戳不在收据里,得单独读一次块。**这一步是第 ⑤ 条(报价有效期)的前提** ——
+  // 没有它就没法判"这笔交易发生在报价窗口内"。
+  const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber })
+
+  return logs.map((log) => ({
+    contentId: log.args.contentId,
+    payer: log.args.payer,
+    // `pay()` 里 `amounts[i] = share`,余数归最后一个收款人 ⇒ 求和恒等于 `c.price`。
+    // 事件里它是 `uint256[]`,viem 解出来是 `readonly bigint[]` —— 别改成 `number`
+    amounts: log.args.amounts,
+    // ⚠️ viem 的区块时间戳是 **bigint 秒**。转成 number 是安全的:
+    // unix 秒远小于 2^53,而下游(报价的 issuedAt/expiresAt)本来就是 number。
+    blockTimeSeconds: Number(block.timestamp),
+  }))
+}
+
+/** catalog 的原料:一件已注册内容在链上的不可变字段 */
+export type RegisteredContent = {
+  contentId: Hex
+  creator: Address
+  price: bigint
+}
+
+/**
+ * 扫出所有已注册的内容 —— `/api/catalog` 的起点。
+ *
+ * ## ⚠️ 为什么只扫事件、完全不读 `getContent`
+ *
+ * 因为**`price` 与 `creator` 在注册之后不可变** —— 已从合约 ABI 核实:
+ * 全部函数只有 `contentExists` / `createContent` / `getContent` / `pay` /
+ * `pendingBalance` / `purchases` / `setContentActive` / `usdc` / `withdraw`,
+ * **没有任何改价或转移归属的入口**。唯一可变的是 `active`,
+ * 而它由 `ContentActiveChanged` 事件单独记录。
+ *
+ * 所以 `ContentRegistered` 里那份 `price` 与 `creator` **永远等于当前值**,
+ * 拿它建列表不会有一个"N 件内容就 N 次 `eth_call`"的开销。
+ * 真读了 `getContent` 反而更慢,而且**结果完全一样**。
+ *
+ * ## 起点必须用 `DEPLOY_BLOCK`
+ *
+ * `shared/chain.ts` 那个常数的注释写明它是"服务端事件索引的起点,**不要另写一份**"。
+ * 从 0 开始扫会在公共 RPC 上被拒(范围过大),从 `latest` 开始会漏掉全部内容。
+ *
+ * ⚠️ 事件多了之后这个函数会变成瓶颈(每次都要全量重扫)。演示量级无忧;
+ * 真要优化就是 W8 的 KV 索引,或者引入 `The Graph`(方案 §10 记的加分项,不阻塞)。
+ *
+ * ## ⚠️ `strict: true` 不是可选的,少了它类型就废了
+ *
+ * 不加 `strict` 时 viem 把返回值定型成**整个 ABI 里所有事件的联合**,
+ * 于是 `log.args.contentId` 的类型是 `Hex | undefined` —— 因为 ABI 里
+ * 有些事件压根没有这个字段。加了 `strict: true` 才真正按 `eventName` 收窄成
+ * `ContentRegistered` 一种,`args` 变成必填。
+ *
+ * ⚠️ 别用 `log.args.contentId!` 把它按下去:那是在对一个**真实的可能性**
+ * 撒谎(也挡不住将来有人把 `eventName` 改错)。
+ */
+export async function listRegisteredContents(): Promise<RegisteredContent[]> {
+  const logs = await publicClient.getContractEvents({
+    address: SPLITTER_ADDRESS,
+    abi: creatorSplitterAbi,
+    eventName: 'ContentRegistered',
+    fromBlock: DEPLOY_BLOCK,
+    toBlock: 'latest',
+    strict: true,
+  })
+  return logs.map((log) => ({
+    contentId: log.args.contentId,
+    creator: log.args.creator,
+    price: log.args.price,
+  }))
+}
+
+/**
+ * 扫出所有的上下架变更 —— 交给 `shared/contentActive.ts` 的 `deriveActiveState` 收敛。
+ *
+ * ⚠️ **不要在这里顺手做收敛。** 那一步最容易写错的正是**遍历顺序**
+ * (顺序反了会给出上一次的状态,而且切一次看不出来、连着切两次才暴露),
+ * 所以它被抽成一个**不碰链、能单独测**的纯函数。
+ * 这里只负责"按 viem 的顺序把它捞出来"(区块升序 + 同区块内 logIndex 升序)。
+ *
+ * ⚠️ `strict: true` 的理由同 `listRegisteredContents` —— 少了它 `args` 全是
+ * `| undefined`,类型检查等于没做。
+ */
+export async function listActiveChanges(): Promise<Array<{ contentId: string; active: boolean }>> {
+  const logs = await publicClient.getContractEvents({
+    address: SPLITTER_ADDRESS,
+    abi: creatorSplitterAbi,
+    eventName: 'ContentActiveChanged',
+    fromBlock: DEPLOY_BLOCK,
+    toBlock: 'latest',
+    strict: true,
+  })
+  return logs.map((log) => ({ contentId: log.args.contentId, active: log.args.active }))
 }

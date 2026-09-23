@@ -4,7 +4,7 @@ import { useAccount, usePublicClient } from 'wagmi'
 import { DEPLOY_BLOCK } from '../../shared/chain'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { listRememberedContents } from '../lib/contentMeta'
-import { deriveActiveState, isActive } from '../lib/contentActive'
+import { deriveActiveState, isActive } from '../../shared/contentActive'
 
 /**
  * 「我创建的内容」—— 控制台和看板**共用**的那份查询(2026-09-23 抽出)。
@@ -149,9 +149,11 @@ export function useMyContents() {
         }),
       ])
 
-      // 「最后一条事件即当前状态」的推导在 `lib/contentActive.ts` 里 —— 抽出去
+      // 「最后一条事件即当前状态」的推导在 `shared/contentActive.ts` 里 —— 抽出去
       // 是为了**能单独验**:那个函数最容易写错的地方是遍历顺序,而顺序反了
       // 切一次看不出来、**连着切两次才暴露**,必须能脱离链单独跑。
+      // ⚠️ 它 2026-09-23(W7)从 `src/lib/` 挪到了 `shared/`,因为服务端也要判下架 ——
+      // 照抄一份就是两份会漂移的判断。
       // ⚠️ 它依赖入参按发生顺序(`getContractEvents` 就是这个顺序)。
       const activeOf = deriveActiveState(
         allActiveChanges

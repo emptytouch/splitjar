@@ -21,7 +21,9 @@ import {
   computeFileHash,
   directUpload,
   preflightUpload,
+  publishContentTitle,
 } from '../lib/uploadApi'
+import type { UploadAuthWire } from '../../shared/upload'
 
 /**
  * 发布流程 —— 把「选文件 → 算哈希 → 签授权 → 直传 → 创建交易 → 等上链」
@@ -50,6 +52,12 @@ import {
 
 /** 提交时要写进链上的价格与分账。由页面从它自己的校验结果里传进来 */
 export type PublishTarget = {
+  /**
+   * 服务端的**可读标题** —— ⚠️ **它不上链**(合约里没有这个字段)。
+   * 它写进 KV,给 `GET /api/catalog` 用,好让 agent 看得懂买的是什么。
+   * 详见 `usePublishFlow` 里 `pendingTitle` 那段
+   */
+  title: string
   price: bigint
   recipients: readonly `0x${string}`[]
   splits: readonly number[]
@@ -59,6 +67,36 @@ export function usePublishFlow(contentId: Hex) {
   const { address, isConnected } = useAccount()
   const [state, dispatch] = useReducer(publishReducer, PUBLISH_INITIAL)
   const [progress, setProgress] = useState<number | null>(null)
+
+  /**
+   * 标题有没有写进服务端。`null` = 还没创建成功过。
+   *
+   * ⚠️ **刻意放在状态机外面。** 写标题与"发布成功没有"是两件正交的事:
+   * 标题只是 catalog 里给人看的一行字(见 `shared/agentPay.ts`),
+   * 写不进去**不改发布的结果** —— 内容已经上链、钱已经花了。
+   * 塞进 reducer 会让状态机多出"创建成功但标题失败"这种假状态。
+   */
+  const [titleSaved, setTitleSaved] = useState<boolean | null>(null)
+
+  /**
+   * 从 `publish()` 传给"等回执"那个 effect 的两样东西。
+   *
+   * ## ⚠️ 为什么非要一个 ref 不可
+   *
+   * 标题只能写在**回执成功之后**(在那之前合约里没有 `creator`,归属检查必回
+   * 404),而回执是 `useWaitForTransactionReceipt` 给的 —— 它是个 hook,
+   * **没法在 async 函数里 await**,所以那一步只能待在 effect 里。
+   * 而 `wire` 是 `publish()` 的局部变量、`title` 来自页面的 `PublishTarget`,
+   * 两者都在 effect 的闭包外。
+   *
+   * ## ⚠️ `wire` 可能是 `null` —— 重试路径会丢签名
+   *
+   * 从 `creating` 接上的两条路(重试 / `skipUpload`)上一次已经传过文件了,
+   * 那条 `Upload` 签名是**上一次调用**签的,这次调用里根本没有它。
+   * 这种情况下**不重签,直接放弃标题** —— 理由是不为一行装饰再弹一次钱包,
+   * 代价是重试路径创建的内容 catalog 里没有标题(如实记在文档里,不是静默 bug)。
+   */
+  const pendingTitle = useRef<{ wire: UploadAuthWire | null; title: string } | null>(null)
 
   const { signTypedDataAsync } = useSignTypedData()
   const write = useWriteContract()
@@ -124,6 +162,9 @@ export function usePublishFlow(contentId: Hex) {
 
       running.current = true
       setProgress(null)
+      setTitleSaved(null)
+      // 先把标题记下来(此刻还没有 `wire`);拿到签名后再补进第二个字段
+      pendingTitle.current = { wire: null, title: target.title }
       dispatch({ type: 'submit' })
 
       // 出错时用它判断"倒在哪一段" —— 同样是链上的失败,倒在上传那一段
@@ -139,6 +180,8 @@ export function usePublishFlow(contentId: Hex) {
             uploader: address,
             signTypedData: signTypedDataAsync,
           })
+          // 拿到签名了 —— 它等下要拿去写标题(见 `pendingTitle` 的说明)
+          if (pendingTitle.current) pendingTitle.current.wire = wire
 
           /**
            * ★ 预检 —— 在真正上传之前,把"重试也修不好"的错误如实问出来。
@@ -191,11 +234,46 @@ export function usePublishFlow(contentId: Hex) {
 
     if (receipt.isSuccess) {
       dispatch({ type: 'done', txHash: state.txHash ?? write.data! })
+
+      // ── 标题:尽力而为,写在**创建成功之后** ──────────────────────────
+      //
+      // ⚠️ 这一段**绝不能**把上面那个 `done` 变成失败。内容已经上链、钱已经花了,
+      // 而标题只是 catalog 里的一行展示文字。所以:
+      //   - 不 await 它(不让一次往返拖慢成功界面)
+      //   - 不 throw 出去(状态机停在"正在上链"会是最糟的结果)
+      //   - 失败只落成一个 `false`,由页面决定要不要提一句
+      //
+      // ⚠️ 先把 ref 清掉再干活 —— 这个 effect 会因为 `receipt.isSuccess`
+      // 一直是 true 而**重复执行**,不清就等于把标题写两遍、还会覆盖掉结果。
+      const pending = pendingTitle.current
+      pendingTitle.current = null
+      if (pending) {
+        if (!pending.wire) {
+          // 重试 / `skipUpload` 路径拿不到签名(见 `pendingTitle` 的说明)——
+          // 不重签,放弃标题。**这不是静默失败**:控制台留一行
+          console.warn('[splitjar] 从上传之后的步骤接上,没有 Upload 签名,标题未写入服务端')
+          setTitleSaved(false)
+        } else {
+          void publishContentTitle({
+            contentId,
+            title: pending.title,
+            wire: pending.wire,
+          }).then(
+            () => setTitleSaved(true),
+            (e) => {
+              // 最常见的原因就是那条 5 分钟的 `deadline` 过期了(见 uploadApi.ts)。
+              // 内容本身没问题,只是 catalog 里这一行标题会变成 null
+              console.warn('[splitjar] 标题没能写进服务端,内容本身已创建成功', e)
+              setTitleSaved(false)
+            },
+          )
+        }
+      }
     } else if (receipt.isError) {
       // 上链失败**不是**上传失败 —— 文件好好地在上头,重试会跳过上传
       dispatch({ type: 'fail', reason: chainReasonOnReceipt(receipt.error), detail: shortReason(receipt.error) })
     }
-  }, [state, receipt.isSuccess, receipt.isError, receipt.error, write.data])
+  }, [state, receipt.isSuccess, receipt.isError, receipt.error, write.data, contentId])
 
   /**
    * 重新开始。
@@ -210,10 +288,15 @@ export function usePublishFlow(contentId: Hex) {
     running.current = false
     write.reset()
     setProgress(null)
+    // ⚠️ 也要清掉待写的标题 —— 换 `contentId` 重新开始之后,
+    // 留着上一份内容的 `wire` 会拿旧签名去写新内容(服务端会以 `content_claimed`
+    // 或验签失败拒掉,但那是一类本不该发出的请求)
+    pendingTitle.current = null
+    setTitleSaved(null)
     dispatch({ type: 'reset' })
   }, [write])
 
-  return { state, progress, pickFile, publish, reset }
+  return { state, progress, titleSaved, pickFile, publish, reset }
 }
 
 /**

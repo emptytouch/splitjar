@@ -49,6 +49,27 @@ export type ApiErrorCode =
   | 'upstream_unavailable'
   /** 服务端环境变量没配齐 */
   | 'not_configured'
+  // ── W7 · Agent 路径(方案 §9.4)新增 ────────────────────────────────
+  /** 报价验签不过 —— 字段被改过,或不是我们签发的 */
+  | 'quote_invalid'
+  /** 报价本身过期了(与上面那条分开:一个是伪造,一个是超时) */
+  | 'quote_expired'
+  /** 链上没有这笔交易,或它的收据是失败的 */
+  | 'payment_not_found'
+  /** 收据里的 contentId / payer 与请求声明的不符 —— 含冒用他人交易 */
+  | 'payment_mismatch'
+  /** 这个 txHash 已经被消费过了(防重放) */
+  | 'payment_replayed'
+  /**
+   * 内容已下架。
+   *
+   * ⚠️ 与 `not_purchased` 的 402 **不是一回事,别合并**:402 是"可以买,先付钱",
+   * 而这个**不能买** —— 合约 `pay()` 第三行就 `revert ContentInactive`,
+   * 对已下架的内容回 402 等于邀请 agent 花 gas 换一次必然的 revert。
+   * 人类付费页早就堵上了这条路(`src/lib/payGate.ts` 的 `content-inactive`),
+   * 服务端不能反而敞开。
+   */
+  | 'content_inactive'
 
 /** 一条错误响应 */
 export type ApiError = {

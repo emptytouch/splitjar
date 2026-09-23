@@ -75,6 +75,16 @@ export const CODE_TO_REASON: Record<ApiErrorCode, PublishFailReason> = {
   nonce_mismatch: 'protocol',
   not_purchased: 'protocol',
   content_not_found: 'protocol',
+  // ── W7 Agent 路径专属的六条,发布流程里**同样**不该出现 ──────
+  // 发布走的是 `Upload` 签名(无 txHash、无报价、不看下架状态),
+  // 这六条全是 agent 那条路的失败面。归 'protocol' 而不是 'unavailable':
+  // 重试解决不了它们,别让界面提示用户"重试即可"。
+  quote_invalid: 'protocol',
+  quote_expired: 'protocol',
+  payment_not_found: 'protocol',
+  payment_mismatch: 'protocol',
+  payment_replayed: 'protocol',
+  content_inactive: 'protocol',
 }
 
 /**
@@ -149,6 +159,37 @@ export async function computeFileHash(file: File): Promise<Hex> {
  */
 export async function preflightUpload(wire: UploadAuthWire): Promise<void> {
   await postJson('/api/upload', wire)
+}
+
+/**
+ * 把标题写进服务端 KV —— `GET /api/catalog` 的 `title` 就是从这里来的。
+ *
+ * ## 为什么复用**同一条** `Upload` 签名,而不是新签一条
+ *
+ * 判据是"这条签名管的是不是同一件事":`Upload` 已经钉死了 `target: 'content'`
+ * (见 `shared/upload.ts`),而它的含义就是"**创作者本人对这份内容**的授权"。
+ * 传文件是这件事,写标题也是这件事 —— 同一个 `contentId`、同一个 `uploader`。
+ * 再弹一次钱包只为改一个标题,是拿一次真实的打扰换零新增的安全。
+ *
+ * ## ⚠️ 但它的 `deadline` 是**第 1 步**签的(5 分钟),所以可能已经过期
+ *
+ * 时序是 `签名 → 上传 → createContent 上链 → 回执`,标题只能写在第 4 步之后
+ * (在那之前合约里还没有 `creator`,归属检查必回 404)。
+ * 演示路径下(小文件 + Fuji 几秒出块)远不到 5 分钟,但**这个失败是可能的**。
+ *
+ * **所以调用方必须把它当尽力而为**:失败了就把标题留在 `null`,
+ * catalog 会照常返回这件内容(见 `shared/agentPay.ts` 的 `CatalogEntry.title`)。
+ * ⚠️ **绝不能**让它的失败把一个已经成功的创建说成失败 —— 内容已经上链、钱已经花了。
+ */
+export async function publishContentTitle(args: {
+  contentId: Hex
+  title: string
+  /** 第 1 步签的那条 `Upload` 授权。它已经带着 contentId / uploader / deadline / signature */
+  wire: UploadAuthWire
+}): Promise<void> {
+  // ⚠️ `wire` 直接铺开 —— 服务端要的五个字段都在里面,`title` 是它不碰的第六个
+  // (见 `api/content-meta.ts`:`parseUploadAuth` 只认那五个)
+  await postJson('/api/content-meta', { ...args.wire, title: args.title })
 }
 
 /**

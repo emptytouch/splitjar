@@ -63,7 +63,43 @@
       —— **不是"验了没通过",是本机发不出请求**(Blob 数据面与 `*.vercel.app`
       都是定向屏蔽)。**部署后必须补,这是 W5 的完成定义。**
 
-尚未开始:体验模式(W6,已推迟)、Agent 路径(W7–W8)、初筛材料(W10)、打磨(W11)。
+**W7 Agent 路径服务端** —— 代码已落地(2026-09-23),⚠️ **一半验收只能部署后跑**。
+
+- [x] **`GET /api/catalog`** —— 发现入口。扫 `ContentRegistered` 事件建列表,
+      **零次 `eth_call`**(`price` / `creator` 注册后不可变,已从 ABI 核实),
+      在架的才列
+- [x] **`GET /api/content/:id`** —— 没凭证 → **402 + 一份 HMAC 签名的报价**;
+      带 `X-Payment` → 五条校验 → 一分钟后自动失效的下载链接
+- [x] **`POST /api/content-meta`** —— 创作者写标题进 KV(catalog 的 `title` 来自这里)
+- [x] 报价**签名载荷只有 `contentId + quoteId + expiresAt`** —— 判据是"验签那一刻
+      服务端能不能重新算出来"(详见 `docs/W7-实施计划.md` §1.3)
+- [x] 防重放用 **KV 短租约**(占位 60s → 成功才落定),让"原子"与"记在成功之后"
+      两条要求同时成立
+- [x] **`npm run typecheck` + `npm run build` 都过**;本机实测过的反例见
+      `docs/W7-实施计划.md` §6.1/§6.2
+- [ ] ⚠️ **反例 2/3/4/5/7/9 与 happy path 尚未实测** —— 它们全要过 `reservePayment`,
+      而 **`*.upstash.io` 在本机被定向屏蔽**。**部署后必须补。**
+- [ ] ⚠️ **`403 content_inactive` 未实测** —— 需要一件已下架的内容,本机只有一件
+      且在架
+
+> ### ⚠️ 关于 x402:我们**复用它的形态,没有实现它**
+>
+> 报价体、字段命名、`method` 都照着 x402 来,让认这个标准的评委一眼看得懂。
+> 但**结算不是 x402**,而且**信任模型正好相反**:
+>
+> | | 真 x402 | 我们 |
+> |---|---|---|
+> | 支付头装的 | **未广播的签名授权**(EIP-3009),由 facilitator 代付广播 | **已广播交易的哈希**,我们只去链上查证 |
+> | 谁广播 | facilitator(gasless) | 买家自己(两笔:`approve` + `pay`) |
+> | `payTo` | 单个 payee | **`CreatorSplitter` 合约** —— 一笔付款当场分给 N 方 |
+>
+> 最后一行的差别不是实现细节:x402 的 `exact` scheme 只有单 payee,
+> **容纳不下"同一笔付款分给 N 个收款人"**,而这正是本产品的核心。
+>
+> 所以准确的说法是「**复用 x402 的交互形态与报价字段命名**」。
+> **我们不声明"实现了 x402"** —— 完整推演见 `docs/W7-实施计划.md` §〇。
+
+尚未开始:体验模式(W6,已推迟)、**Agent 演示客户端(W8)**、初筛材料(W10)、打磨(W11)。
 
 > 完整工作分解见 `docs/开发计划.md`(WBS + 依赖 + 风险)。
 > 产品方案见 `docs/splitjar-product-spec.md`;各工作包的实施记录见 `docs/W3-实施计划.md`
@@ -98,6 +134,36 @@ npm run typecheck   # tsc --noEmit
 npm run build       # 类型检查 + 生产构建
 ```
 
+### 手动走一遍 Agent 那条路(W7 的完成定义)
+
+Agent 客户端本身是 **W8**(还没写),但整条路现在就能用 `curl` 走完。
+
+⚠️ **要用 `vercel dev`,不是 `npm run dev`** —— 后者只是 Vite(5173),
+它**不提供 `/api/*`**,打过去一律 404。`vercel dev` 才会把 `api/` 下的文件
+挂成路由(默认 3000)。
+
+```bash
+npx vercel dev --listen 3000 --yes
+
+# 0. 发现 —— 在架的内容和价格
+curl -s localhost:3000/api/catalog
+
+# 1. 报价 —— 没带 X-Payment,拿到 402 + 一份签了名的报价
+curl -si localhost:3000/api/content/0x<contentId> | head -20
+
+# 2. 付款 —— Agent 自己发两笔:approve(USDC → 合约),然后
+#    CreatorSplitter.pay(bytes32 contentId)   ← 与人类路径同一个函数
+
+# 3. 取内容 —— 回显第 1 步那份报价,带上已广播交易的哈希
+curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
+  "quoteId":"0x…","expiresAt":…,"sig":"0x…"}' \
+  localhost:3000/api/content/0x<contentId>
+# → {"url":"https://…","expiresInSeconds":60}
+```
+
+⚠️ 本机要跑通第 1 步,`QUOTE_HMAC_SECRET` **必须已配置**(见"部署"那节的说明)。
+第 3 步还要 KV —— 本机 `*.upstash.io` 不通,只能部署后验。
+
 ## 技术栈
 
 | 层 | 选型 |
@@ -122,13 +188,30 @@ npm run build       # 类型检查 + 生产构建
 │
 ├── shared/              ⭐ 前端 + 服务端共用,唯一事实来源
 │   ├── chain.ts         #  链 + USDC 地址(从 viem 注册表取,不手写)
+│   ├── eip712.ts        #  两份 EIP-712 签名的 domain + 解析原语
+│   ├── upload.ts        #  `Upload` 授权(内容/预览图两用,决定落哪个 store)
+│   ├── unlock.ts        #  `Unlock` 授权(人类取内容那条路)
+│   ├── agentPay.ts      #  402 报价 / `X-Payment` / catalog 的线上格式(W7)
+│   ├── contentActive.ts #  「最后一条上下架事件即当前状态」的纯推导(W7 从 src/ 挪上来)
+│   ├── contentMeta.ts   #  标题的长度上限与截断规则(两端同一套)
+│   ├── storage.ts       #  Blob 路径规则(内容私有 / 预览图公开)
+│   ├── api.ts           #  错误信封 `{ error: { code, message } }` + 状态码
 │   └── abi/             #  合约 ABI(W2 由 forge 生成,见该目录 README)
 │
 ├── api/                 ⭐ Vercel Functions —— 一个文件 = 一个路由
-│   └── health.ts        #  部署健康探针
+│   ├── health.ts        #  部署健康探针(含"哪几个服务端变量配了")
+│   ├── unlock.ts        #  人类取内容(六道检查 → 60s 短时效 URL)
+│   ├── unlock-nonce.ts  #  签发解锁用的 nonce
+│   ├── upload.ts        #  签发受限上传 token(内容直传的那张门票)
+│   ├── catalog.ts       #  ⭐ W7 · Agent 的发现入口
+│   ├── content-meta.ts  #  ⭐ W7 · 创作者写标题进 KV
+│   └── content/[id].ts  #  ⭐ W7 · 402 报价 / 带凭证据取内容(`[id]` = 动态路由)
 │
 ├── server/              ⭐ 只在服务端跑,**不是路由**
-│   └── env.ts           #  服务端环境变量登记表(= 密钥白名单)
+│   ├── env.ts           #  服务端环境变量登记表(= 密钥白名单)
+│   ├── chain.ts         #  服务端读链(门禁的信任面)+ W7 的事件扫描
+│   ├── kv.ts            #  Upstash Redis:nonce / 402 防重放 / 内容标题
+│   └── quote.ts         #  402 报价的 HMAC 签与验
 │
 ├── scripts/             ⭐ 本地跑,不进构建、不进产物 —— **W9 才建,现在还没有**
 │                        #  (见下"四条边界"第三条:Agent 客户端只能放这里)
@@ -165,6 +248,16 @@ vercel --prod   # 生产部署
 
 环境变量分两组,**中间那条线是红线**:`VITE_` 前缀会被内联进前端产物,密钥一律不加前缀。详见 `.env.example`。
 
+**部署后必须补验一条(W7)**:`/api/health` 的 `serverEnv.items` 里
+**`QUOTE_HMAC_SECRET` 要显示 `configured: true`**。没配的话 402 那条路会直接回
+503 —— 这是刻意的:一份**没签名**的报价流出去,"报价有效期"那道校验就形同虚设。
+用 `openssl rand -hex 32` 生成,⚠️ **永远不要加 `VITE_` 前缀**。
+
+⚠️ **本机 `vercel dev` 有个坑**:`.env.local` 里明明有 `BLOB_READ_WRITE_TOKEN`,
+但 dev 会**把这一条丢掉**(它是 Vercel 的保留名),`/api/health` 会显示
+`configured: false`。要本地测那条路,起 dev server 时显式 export 一个值即可
+(假的也行)。**线上不是这个原因** —— 线上是 Vercel 自己注入的真值。
+
 ## 关于 Fuji USDC
 
 地址 `0x5425890298aed601595a70AB815c96711a31Bc65`,**6 位小数**。
@@ -188,4 +281,15 @@ viem 注册表)已核对一致。手写地址是经典翻车点,错了会让所�
   只改余额、不调用收款方任何代码,所以收款方是合约也拒收不了。
 - escrow 还缺一环:**通知没有收件人**。合约不知道收款方的联系方式,
   所以"有一笔钱被暂存了"这件事,只有他自己连上钱包看看板才知道
+- **Agent 路径对齐的是 x402 的形态,不是 x402 本身** —— 见上面 W7 那一段的对照表。
+  最本质的一条:我们的支付头装的是**已广播交易的哈希**,
+  而 x402 装的是**待广播的签名授权**。信任模型相反。
+- **Agent 路径没有 reorg 保护。** 五条校验的第 ①②③ 条塌缩成"收据成功 +
+  `PaymentSplit` 日志在场",判据是**确定性**的而不是"N 个确认"。
+  Fuji 演示可以接受,**上主网这里必须改成等确认数**。
+- **服务端读链走的是我们配的 RPC,不是"经过验证的付费墙"** ——
+  RPC 说谎,门禁就判错。真要更硬得自己跑节点或验轻客户端证明,不在当前范围。
+- **catalog 的 `title` 可能为 `null`**:链上不存标题,唯一来源是 KV,
+  而在 `POST /api/content-meta` 之前创建的内容没有这份记录。
+  走**重试**或**跳过上传**路径创建的内容也会缺(拿不到那条授权签名,见 W7 实施计划 §二)
 - 具体定价与费率论证见产品方案文档,不在本 README 展开
