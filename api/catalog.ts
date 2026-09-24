@@ -21,6 +21,11 @@ import { getContentTitles } from '../server/kv.js'
  * 扫 `ContentRegistered` 事件 —— 起点用 `shared/chain.ts` 的 `DEPLOY_BLOCK`,
  * 那个常数的注释写明"服务端事件索引的起点,**不要另写一份**"。
  *
+ * ⚠️ **2026-09-24**:`DEPLOY_BLOCK → latest` 已经**不能**一次扫完了
+ * (备端点上限 50,000 块,跨度 158,401)。切窗口在 `shared/blockWindows.ts`,
+ * 调用点就是下面那两行 —— 这个路由本身不需要知道窗口的存在。
+ * 前因后果见 `docs/W8-实施计划.md` §十一。
+ *
  * ## ⚠️ 零次 `eth_call` —— 因为 `price` 与 `creator` 注册后不可变
  *
  * 这是本包核实出来的一个便宜:**合约里没有任何改价或转移归属的入口**,
@@ -50,11 +55,18 @@ export async function GET(): Promise<Response> {
   let changes: Awaited<ReturnType<typeof listActiveChanges>>
   let blockNumber: bigint
   try {
-    // 三条读互不依赖,一起发 —— 它们打的是同一个 RPC,但省掉两次往返的排队
-    ;[registered, changes, blockNumber] = await Promise.all([
-      listRegisteredContents(),
-      listActiveChanges(),
-      publicClient.getBlockNumber(),
+    // ⚠️ **两拍,不是三件事一起发** —— 2026-09-24 改。
+    //
+    // 原来是 `Promise.all([…, …, getBlockNumber()])`,三条各自解析 `'latest'`。
+    // 那样**三次读可能落在三个不同高度上**:下面返回的 `blockNumber` 说的是 A 高度,
+    // 而列表其实是 B 高度扫出来的 —— 一句没有依据的话。
+    //
+    // 现在先把高度定下来,再拿它当两条扫链的 `toBlock`。代价是两次往返变成 "1 + 1",
+    // 多约 0.4s;换来的是"这份列表是哪个高度上的"**真的成立**。
+    blockNumber = await publicClient.getBlockNumber()
+    ;[registered, changes] = await Promise.all([
+      listRegisteredContents(blockNumber),
+      listActiveChanges(blockNumber),
     ])
   } catch {
     return errorResponse(503, 'upstream_unavailable', '链上查询暂时不可用')

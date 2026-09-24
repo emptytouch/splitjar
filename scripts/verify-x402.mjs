@@ -223,6 +223,36 @@ function signExpiredQuote(contentId, expiresAt) {
 }
 
 /**
+ * 切窗口 —— 本地复制 `shared/blockWindows.ts` 的 `blockWindows`,不 import。
+ *
+ * ## ⚠️ 为什么本地复制,而不是 import
+ *
+ * 与 `signExpiredQuote` 同一条纪律(见上面):那份是 `.ts`,`node` 不能直接跑,
+ * 而脚本又刻意不依赖仓库内部模块 — — 这里是验证**服务端的独立实现**,
+ * 复制的意义正是"算法同源、代码独立",服务端哪天改了切法,这里会红。
+ *
+ * ## 口径(与 shared/blockWindows.ts 同源,细节看那边)
+ *
+ * 公共 RPC 对单次 `getLogs` 的范围有上限:备端点实测 `to - from` 到 49,999 都行,
+ * 50,000 就报 `-32701 exceed maximum block range: 50000`。所以窗口按
+ * `[from, from + size - 1]` 写,`to - from` 恒等于 49,999 —— 卡在上限的**下一格**。
+ * 别把 `size` 改成报错里那个数字:报错口径是 `to - from`,不是"块数",两口径差一格。
+ *
+ * 边界:`from > to` → `[]`(不是抛错);`size <= 0` → 抛错(否则 `start += 0`
+ * 原地打转,死循环);不整除时最后一格截到 `to`。
+ */
+function blockWindows(from, to, size) {
+  if (size <= 0n) throw new Error(`blockWindows: size 必须为正,收到 ${size}`)
+  if (from > to) return []
+  const out = []
+  for (let start = from; start <= to; start += size) {
+    const end = start + size - 1n
+    out.push({ from: start, to: end > to ? to : end })
+  }
+  return out
+}
+
+/**
  * 扫链找一笔**还没被兑过**的真实付款。
  *
  * ## ⚠️ 关键在"无损探针"
@@ -242,15 +272,29 @@ function signExpiredQuote(contentId, expiresAt) {
  * 探针因此是完全无损的。**扫描只要一个公开地址,不需要私钥。**
  */
 async function findLivePayment(payer, activeContentIds) {
-  const logs = await publicClient.getLogs({
-    address: SPLITTER,
-    event: PAYMENT_SPLIT,
-    args: { payer },
-    // ⚠️ 从 DEPLOY_BLOCK 起。`shared/chain.ts:59` 实测公共 Fuji RPC **不限 getLogs 范围**;
-    // 真被限了就把这里改成按内容逐个查(内容列表已知,范围能小很多)
-    fromBlock: DEPLOY_BLOCK,
-    toBlock: 'latest',
-  })
+  // ⚠️ 从 DEPLOY_BLOCK 起,**但要切窗口** —— 2026-09-24 更正。
+  //
+  // 这里原来写着「实测公共 Fuji RPC **不限 getLogs 范围**;真被限了就把这里改成
+  // 按内容逐个查」。**那个"真被限了"已经发生了**:备端点 `publicnode` 的上限是
+  // 50,000 块,而 `DEPLOY_BLOCK → latest` 是 158,401(且只涨不减)。
+  //
+  // 没有改成"按内容逐个查":那要 N 次请求、N 取决于内容条数,
+  // 而切窗口是 4 次、与内容条数无关。做法与网页/服务端**同源**:
+  // `shared/blockWindows.ts` 的 `blockWindows()`(纯函数,那边有完整推导)。
+  const latest = await publicClient.getBlockNumber()
+  const logs = (
+    await Promise.all(
+      blockWindows(DEPLOY_BLOCK, latest, 50_000n).map((w) =>
+        publicClient.getLogs({
+          address: SPLITTER,
+          event: PAYMENT_SPLIT,
+          args: { payer },
+          fromBlock: w.from,
+          toBlock: w.to,
+        }),
+      ),
+    )
+  ).flat() // ⚠️ 按下标拼 ⇒ 全局升序;下面 `reverse()` 取"最新"靠的就是这个顺序
 
   // 新的排前面 —— 越新越可能还没被兑过
   const seen = new Set()

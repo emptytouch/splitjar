@@ -9,6 +9,7 @@ import {
   type Hex,
 } from 'viem'
 import { creatorSplitterAbi } from '../shared/abi/creatorSplitter.js'
+import { inWindows } from '../shared/blockWindows.js'
 import {
   CHAIN,
   DEFAULT_RPC_BACKUP,
@@ -283,8 +284,25 @@ export type RegisteredContent = {
  * `shared/chain.ts` 那个常数的注释写明它是"服务端事件索引的起点,**不要另写一份**"。
  * 从 0 开始扫会在公共 RPC 上被拒(范围过大),从 `latest` 开始会漏掉全部内容。
  *
- * ⚠️ 事件多了之后这个函数会变成瓶颈(每次都要全量重扫)。演示量级无忧;
- * 真要优化就是 W8 的 KV 索引,或者引入 `The Graph`(方案 §10 记的加分项,不阻塞)。
+ * ## ⚠️ 2026-09-24:`fromBlock → latest` 一次扫完**已经不行了**,必须切窗口
+ *
+ * 这里原来是一次 `getContractEvents` 从 `DEPLOY_BLOCK` 扫到 `'latest'`,
+ * 依据是"公共 Fuji RPC 不限制 `getLogs` 范围"。**那个依据已过期** ——
+ * 备端点 `publicnode` 的上限是 50,000 块,而跨度是 158,401(且只涨不减)。
+ * 后果是**主备只剩一条腿**:主端点不可达时 fallback 走到备端点、备端点拒收范围、
+ * 抛出的 `RpcRequestError` 不会被 fallback 吞掉,直接冒成 503。
+ *
+ * 完整实测与推导见 `shared/blockWindows.ts` 文件头 + `docs/W8-实施计划.md` §十一。
+ *
+ * ## ⚠️ `toBlock` 是**传进来的**,不是在这里读 `'latest'`
+ *
+ * 理由不是省一次 RPC,是**正确性**:`/api/catalog` 要把 `blockNumber` 一起返回,
+ * 让"这份列表是哪个高度上的"这句话真的成立。如果这里各自解析 `'latest'`,
+ * 两次扫链与那次读块号可能落在**三个不同高度**上,响应里的 `blockNumber` 就成了
+ * 一句没有依据的话。
+ *
+ * 用一个**具体块号**当上界还有第二个好处:一个响应内部的两次扫链**看的是同一个高度**,
+ * 不会出现"注册事件扫到了、上下架事件没扫到"这种自己跟自己不一致的列表。
  *
  * ## ⚠️ `strict: true` 不是可选的,少了它类型就废了
  *
@@ -295,16 +313,21 @@ export type RegisteredContent = {
  *
  * ⚠️ 别用 `log.args.contentId!` 把它按下去:那是在对一个**真实的可能性**
  * 撒谎(也挡不住将来有人把 `eventName` 改错)。
+ * ⚠️ 也别为了复用而把 `strict: true` 挪进 `shared/blockWindows.ts` 的泛型里 ——
+ * 那正是它被写成"纯函数 + 回调"的原因,见那个文件头的第 1 条。
  */
-export async function listRegisteredContents(): Promise<RegisteredContent[]> {
-  const logs = await publicClient.getContractEvents({
-    address: SPLITTER_ADDRESS,
-    abi: creatorSplitterAbi,
-    eventName: 'ContentRegistered',
-    fromBlock: DEPLOY_BLOCK,
-    toBlock: 'latest',
-    strict: true,
-  })
+export async function listRegisteredContents(toBlock: bigint): Promise<RegisteredContent[]> {
+  // ⚠️ `getContractEvents` 放在回调里,`strict: true` 才不会被磨掉 —— 见 `shared/blockWindows.ts` 的三条理由
+  const logs = await inWindows(DEPLOY_BLOCK, toBlock, (from, to) =>
+    publicClient.getContractEvents({
+      address: SPLITTER_ADDRESS,
+      abi: creatorSplitterAbi,
+      eventName: 'ContentRegistered',
+      fromBlock: from,
+      toBlock: to,
+      strict: true,
+    }),
+  )
   return logs.map((log) => ({
     contentId: log.args.contentId,
     creator: log.args.creator,
@@ -320,17 +343,24 @@ export async function listRegisteredContents(): Promise<RegisteredContent[]> {
  * 所以它被抽成一个**不碰链、能单独测**的纯函数。
  * 这里只负责"按 viem 的顺序把它捞出来"(区块升序 + 同区块内 logIndex 升序)。
  *
+ * ⚠️ 切窗口与 `toBlock` 必须是传进来的理由,同 `listRegisteredContents` ——
+ * 一句话:**"不限制范围"那条依据过期了,而两次扫链必须看同一个高度。**
+ *
  * ⚠️ `strict: true` 的理由同 `listRegisteredContents` —— 少了它 `args` 全是
  * `| undefined`,类型检查等于没做。
  */
-export async function listActiveChanges(): Promise<Array<{ contentId: string; active: boolean }>> {
-  const logs = await publicClient.getContractEvents({
-    address: SPLITTER_ADDRESS,
-    abi: creatorSplitterAbi,
-    eventName: 'ContentActiveChanged',
-    fromBlock: DEPLOY_BLOCK,
-    toBlock: 'latest',
-    strict: true,
-  })
+export async function listActiveChanges(
+  toBlock: bigint,
+): Promise<Array<{ contentId: string; active: boolean }>> {
+  const logs = await inWindows(DEPLOY_BLOCK, toBlock, (from, to) =>
+    publicClient.getContractEvents({
+      address: SPLITTER_ADDRESS,
+      abi: creatorSplitterAbi,
+      eventName: 'ContentActiveChanged',
+      fromBlock: from,
+      toBlock: to,
+      strict: true,
+    }),
+  )
   return logs.map((log) => ({ contentId: log.args.contentId, active: log.args.active }))
 }

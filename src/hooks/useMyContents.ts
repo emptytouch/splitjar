@@ -5,6 +5,7 @@ import { DEPLOY_BLOCK } from '../../shared/chain'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { listRememberedContents } from '../lib/contentMeta'
 import { deriveActiveState, isActive } from '../../shared/contentActive'
+import { inWindows } from '../../shared/blockWindows'
 import { isAgentAddress } from '../../shared/agentAddresses'
 
 /**
@@ -22,8 +23,22 @@ import { isAgentAddress } from '../../shared/agentAddresses'
  * ## `fromBlock` 用部署高度,不从 0 扫
  *
  * 合约只能从部署那一刻起产生事件,所以 `DEPLOY_BLOCK` 是**正确且最小**的起点。
- * 2026-09-21 实测公共 Fuji RPC 不限制 `getLogs` 范围(10 万块一次查完也成功),
- * 所以这一版不需要分页、不需要索引器。等事件多到扫不动时再上 W8 的 KV。
+ *
+ * ### ⚠️ 2026-09-24 更正:「公共 Fuji RPC 不限制 `getLogs` 范围」**已经过期**
+ *
+ * 那段旧实测写的是「2026-09-21 实测公共 Fuji RPC 不限制 `getLogs` 范围
+ * (10 万块一次查完也成功),所以这一版不需要分页、不需要索引器」。
+ *
+ * **它对备端点 `publicnode` 是假的**(上限 50,000 块),而且跨度只在涨 ——
+ * 现在的跨度是 158,401 = 上限的 3.17 倍。所以这条不是"将来会过期",
+ * 是**写下之后第三天就过期了**:它记的是"当时没被拒",却读成了"没有上限"。
+ *
+ * ⇒ 三次扫链现在统一走 `shared/blockWindows.ts` 的 `inWindows`。
+ * 顺带修掉一处正确性问题:三条读的 `toBlock` 现在都钉在**同一个块号**上
+ * (`latest` 各自解析会让三次读落在不同高度)。详见那个文件头 + §十一。
+ *
+ * KV 索引(把"每次全量"降成"只扫增量")仍是下一步,**但它必须先有窗口** ——
+ * 首次仍要全量,不解决 50k 上限它一步都走不了。
  *
  * ## 谁是"我的内容"
  *
@@ -117,15 +132,21 @@ export function useMyContents() {
     queryFn: async (): Promise<MyContents> => {
       const c = client!
 
+      // ⚠️ 先把块号定下来,再拿它当三条扫链的 `toBlock` —— 见文件头 2026-09-24 那段。
+      // 这次读**不是**多余的:它同时是窗口的上界和"这份看板是哪个高度上的"的依据。
+      const latest = await c.getBlockNumber()
+
       // ① 我创建的内容 —— 直接按 indexed creator 过滤,链上事实
-      const registered = await c.getContractEvents({
-        address: SPLITTER_ADDRESS,
-        abi: creatorSplitterAbi,
-        eventName: 'ContentRegistered',
-        args: { creator: address },
-        fromBlock: DEPLOY_BLOCK,
-        toBlock: 'latest',
-      })
+      const registered = await inWindows(DEPLOY_BLOCK, latest, (from, to) =>
+        c.getContractEvents({
+          address: SPLITTER_ADDRESS,
+          abi: creatorSplitterAbi,
+          eventName: 'ContentRegistered',
+          args: { creator: address },
+          fromBlock: from,
+          toBlock: to,
+        }),
+      )
 
       const mine = new Map<Hex, { price: bigint; txHash: Hex; blockNumber: bigint }>()
       for (const log of registered) {
@@ -146,21 +167,27 @@ export function useMyContents() {
       //
       // 上下架变更同理:一次全查,内存里按 contentId 收敛到"最后一条"。
       // 每次切换都会发一条(合约没有空转保护),所以最后一条即当前值。
+      // ⚠️ 两条走同一个 `latest`,所以它们看的是**同一个高度** ——
+      // 列表与上下架状态不会自己跟自己不一致。
       const [allSplits, allActiveChanges] = await Promise.all([
-        c.getContractEvents({
-          address: SPLITTER_ADDRESS,
-          abi: creatorSplitterAbi,
-          eventName: 'PaymentSplit',
-          fromBlock: DEPLOY_BLOCK,
-          toBlock: 'latest',
-        }),
-        c.getContractEvents({
-          address: SPLITTER_ADDRESS,
-          abi: creatorSplitterAbi,
-          eventName: 'ContentActiveChanged',
-          fromBlock: DEPLOY_BLOCK,
-          toBlock: 'latest',
-        }),
+        inWindows(DEPLOY_BLOCK, latest, (from, to) =>
+          c.getContractEvents({
+            address: SPLITTER_ADDRESS,
+            abi: creatorSplitterAbi,
+            eventName: 'PaymentSplit',
+            fromBlock: from,
+            toBlock: to,
+          }),
+        ),
+        inWindows(DEPLOY_BLOCK, latest, (from, to) =>
+          c.getContractEvents({
+            address: SPLITTER_ADDRESS,
+            abi: creatorSplitterAbi,
+            eventName: 'ContentActiveChanged',
+            fromBlock: from,
+            toBlock: to,
+          }),
+        ),
       ])
 
       // 「最后一条事件即当前状态」的推导在 `shared/contentActive.ts` 里 —— 抽出去
