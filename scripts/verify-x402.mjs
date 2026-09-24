@@ -567,18 +567,41 @@ async function main() {
     '§16.1「冒用他人 txHash 被拒」',
   )
 
-  // 第 ② 条 —— 拿这笔付款去解**另一件**内容
+  // 第 ② 条 —— 拿这笔付款去解**另一件**内容。
+  //
+  // ⚠️ **2026-09-25 修**:报价必须是为**那一件**新取的,不能复用上面那张(live 的)。
+  //
+  // 第一版直接拿 `goodHeader(PAYER)`(签名载荷里的 contentId 是 live 那件)去打 other
+  // 的路径 —— 于是**第 ⑤ 条(验签)先挡住**,实得 `403 quote_invalid`,第 ② 条
+  // 永远走不到。脚本当时把这一格记成 **fail**,而它注释里自己写着"不是 bug,
+  // 但这条就验不到 ②" —— 既然验不到,就该是 **skip**,记成 fail 是在**误报**。
+  //
+  // 现在为 other 单独取一张报价:签名与路径对得上,第 ⑤ 条放行,
+  // 撞到的才是第 ② 条(收据里的 contentId 与请求不一致)。
+  const otherQuote =
+    other && live.contentId.toLowerCase() !== other.contentId.toLowerCase()
+      ? await getQuote(other.contentId)
+      : null
   expect(
     '第 ② 条:合法 txHash + 另一件内容 → 403 payment_mismatch',
-    other && live.contentId.toLowerCase() !== other.contentId.toLowerCase()
-      ? await call(`/api/content/${other.contentId}`, { header: goodHeader(PAYER) })
+    otherQuote?.quote
+      ? await call(`/api/content/${other.contentId}`, {
+          header: paymentHeader({
+            txHash: live.txHash,
+            payer: PAYER,
+            quoteId: otherQuote.quote.quoteId,
+            expiresAt: otherQuote.quote.expiresAt,
+            sig: otherQuote.quote.sig,
+          }),
+        })
       : null,
     403,
     'payment_mismatch',
     !other
       ? '只有一件在架内容,没有"另一件"可以撞'
-      : '⚠️ 注意:换内容之后 path 变了,签名也就对不上了 —— 它可能**先**撞上 quote_invalid。\n' +
-        '     真撞上了说明"报价绑定内容"比 ② 更早生效,不是 bug,但这条就验不到 ②。',
+      : otherQuote?.quote
+        ? '报价是为另一件新取的 ⇒ 第 ⑤ 条放行,撞到的是第 ② 条 —— 这才是这条要验的东西'
+        : '另一件内容取不到报价,这条验不了',
   )
 
   // 第 ⑦ 条 —— 410 quote_expired。需要自签,所以只在本机(有 QUOTE_HMAC_SECRET)能跑
