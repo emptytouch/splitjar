@@ -5,7 +5,7 @@ import { Balances } from '../components/Balances'
 import { ChainProbe } from '../components/ChainProbe'
 import { Card, PageHeader, Placeholder } from '../components/Shell'
 import { useMyContents } from '../hooks/useMyContents'
-import { formatUsdc } from '../lib/units'
+import { formatUsdc } from '../../shared/units'
 import { shortAddress } from '../lib/links'
 import { AGENT_ENTRIES } from '../../shared/agentAddresses'
 import { CHAIN } from '../../shared/chain'
@@ -177,6 +177,21 @@ function AgentAccess() {
           前四步一分钱不花,可以反复跑。去掉它才真的花钱。
         </p>
       </div>
+
+      {/* ⚠️ 2026-09-26(W14 包 A):上面这一段说的是**终端脚本**那条路,
+          而广场上多了另一条**完全不碰私钥**的路。两条路必须在这里分开,
+          否则用户会以为界面上那个输入框就是"agent 在买" —— 它不是。
+          措辞按计划 §七.5:不许把它说成 agent、不许说它替你付款。 */}
+      <p className="border-t border-line-soft pt-3 text-[11px] leading-relaxed text-muted">
+        界面上另有一条<span className="text-neutral-300">不碰私钥</span>的入口:
+        <Link to="/explore" className="mx-1 text-accent-soft hover:underline">
+          内容广场
+        </Link>
+        可以用一句话说想找什么,由模型翻译成筛选条件。
+        ⚠️ 那只是一次<b className="font-medium text-neutral-300">意图解析</b> ——
+        <b className="font-medium text-neutral-300">不替你付款</b>
+        ,买还是你自己点进去签。「授权 agent 替你扫货」还没做。
+      </p>
 
       <p className="border-t border-line-soft pt-3 text-[11px] leading-relaxed text-muted">
         {AGENT_ENTRIES.length > 0 ? (

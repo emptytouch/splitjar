@@ -81,6 +81,23 @@ export const SERVER_ENV = [
     when: 'W7 · 签/验 402 报价,防篡改',
     required: true,
   },
+  {
+    /**
+     * ⚠️ **`required: false` 是刻意的,别"顺手"改成 true。**
+     *
+     * W14 包 A 的意图解析(`POST /api/parse-intent`)用它调 Anthropic。
+     * 计划 §3.2 要求**没有它系统必须照常可用** —— 没配 key 时那条端点回
+     * `{kind:'degraded'}`,界面退化成手动筛选框。
+     * 一旦标成 `required`, `serverEnvReady()` 会变 false,等于在说
+     * "没这个 key 就部署不起来" —— 而那与 §3.2 正好相反。
+     *
+     * 它也是本仓库**第一条会按次花钱**的服务端凭证:那条端点没有限流,
+     * 前因后果见 `api/parse-intent.ts` 文件头。
+     */
+    name: 'ANTHROPIC_API_KEY',
+    when: 'W14 · /explore 的一句话解析。⚠️ 可缺:缺了就降级成手动筛选',
+    required: false,
+  },
 ] as const
 
 /** 登记过的服务端变量名。写成字面量联合,拼错名字编译期就报错。 */

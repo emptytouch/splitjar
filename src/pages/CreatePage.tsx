@@ -26,7 +26,7 @@ import {
   parseBps,
   parseUsdc,
   previewShares,
-} from '../lib/units'
+} from '../../shared/units'
 
 /**
  * `/create` —— W4:分账比例可编辑,支持多位协作者。
@@ -124,7 +124,7 @@ export function CreatePage() {
   ])
   const nextRowId = useRef(3)
 
-  // ── 表单校验。全部走字符串,不做浮点往返(见 lib/units.ts)──────────
+  // ── 表单校验。全部走字符串,不做浮点往返(见 shared/units.ts)──────────
   //
   // 返回的 `errors` 用**扁平字符串键**而不是嵌套结构,因为要直接喂给 `shown()`:
   // 每个输入框在失焦后取自己的那条错误。`row:${id}:addr` 这种键同时也是稳定的。

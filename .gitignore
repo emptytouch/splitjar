@@ -6,6 +6,9 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+# `scripts/verify-intent.mjs` 编译那四个纯共享文件时的落脚处。
+# 正常情况下它**跑完就自己删掉**;这条规则是防中断(Ctrl-C)留下一坨编译产物。
+.intent-check/
 # tsc 的增量缓存(`tsc -b` / `incremental` 会生成)。是构建产物,不是源码 ——
 # 2026-09-24 发现它一直没被忽略,只是此前没人跑过会生成它的那条命令。
 *.tsbuildinfo

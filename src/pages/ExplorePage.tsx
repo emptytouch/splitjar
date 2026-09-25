@@ -1,9 +1,7 @@
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/Shell'
+import { IntentSearch } from '../components/IntentSearch'
 import { useCatalog } from '../hooks/useCatalog'
-import { formatUsdc } from '../lib/units'
-import { shortAddress } from '../lib/links'
-import type { CatalogEntry } from '../../shared/agentPay'
 
 /**
  * `/explore` —— 内容广场。
@@ -17,8 +15,8 @@ import type { CatalogEntry } from '../../shared/agentPay'
  * ## 它没有新造任何能力
  *
  * 数据全来自 `GET /api/catalog` —— 那是 W7 给 **agent** 做的端点,
- * 一直在生产上跑,**前端一次没调过**。所以这一页是"把已有能力接上",
- * 不是"加了个功能"。
+ * 一直在生产上跑,**前端一次没调过**(本页是它第一个前端调用方)。所以这一页是
+ * "把已有能力接上",不是"加了个功能"。
  *
  * ## ⚠️ 走的是和 agent 完全相同的目录
  *
@@ -26,10 +24,23 @@ import type { CatalogEntry } from '../../shared/agentPay'
  * `CreatorSplitter.pay()`。这不是巧合,是产品主张:**同一个商品,
  * 两种买家,一份分账**。把这一页做成另一个数据源就毁掉了那句话。
  *
- * ## 两个状态必须分开(方案 §14.2)
+ * ## ⚠️ 2026-09-26(W14 包 A)之后,这一页的渲染被切成两半
  *
- * **读失败**和**没有内容**是两件事,显示成一样会让用户以为"东西没了"。
- * 读失败时明确说"这不代表没有内容",和 `/dashboard`、控制台摘要同一口径。
+ * 搜索区(含它自己的结果网格)搬去了 `components/IntentSearch.tsx`,
+ * 商品卡搬去了 `components/ContentCard.tsx`。**本文件只剩三个状态判断**:
+ * 读失败 / 还没有内容 / 有内容。分家的理由:搜索结果区和广场网格渲染的是
+ * **同一张卡**,复制一份出来第一个漂移的地方就是 `?t=` 标题参数,而它一漂,
+ * 付费页就变回「未命名内容」。
+ *
+ * ## ⚠️ 三个状态必须互相分开(方案 §14.2)
+ *
+ * | 状态 | 说的是 |
+ * |---|---|
+ * | 读失败 | 「这不代表没有内容」 |
+ * | 链上 0 件 | 「还没有在售的内容」 |
+ * | 筛完为空 | 「没有符合条件的在售内容」(在 `IntentSearch` 里) |
+ *
+ * 混成一个"没有内容"会让用户以为东西没了,而实际上可能只是网络抖了一下。
  */
 export function ExplorePage() {
   const query = useCatalog()
@@ -84,6 +95,9 @@ export function ExplorePage() {
         </div>
       )}
 
+      {/* 链上一件都没有 —— 明确说"还没有内容",不是一片空列表。
+          ⚠️ 这个分支里**不放搜索框**:一件东西都没有的时候,一个只可能筛出
+          空结果的框比没有框更让人困惑(判据 §3.4 第 5 条)。 */}
       {!query.isLoading && !query.isError && items.length === 0 && (
         <div className="rounded-2xl border border-dashed border-line px-5 py-14 text-center">
           <p className="text-sm text-neutral-300">还没有在售的内容</p>
@@ -99,84 +113,8 @@ export function ExplorePage() {
         </div>
       )}
 
-      {items.length > 0 && (
-        <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((item) => (
-            <ContentCard key={item.contentId} item={item} />
-          ))}
-        </ul>
-      )}
+      {/* 有内容 ⇒ 搜索区 + 结果网格整个交给 IntentSearch */}
+      {items.length > 0 && <IntentSearch items={items} />}
     </>
-  )
-}
-
-/**
- * 一张商品卡 —— 整块可点,直接进付费页。
- *
- * ⚠️ `?t=` 带上标题的理由同 `/dashboard` 的链接:链上**不存标题**,
- * 付费页要显示标题就得靠 URL 传(见 `lib/contentMeta.ts`)。
- * 从这一页进去的买家至少有 KV 那份标题,不再依赖谁的 localStorage。
- */
-function ContentCard({ item }: { item: CatalogEntry }) {
-  const to = `/p/${item.contentId}${item.title ? `?t=${encodeURIComponent(item.title)}` : ''}`
-
-  return (
-    <li className="flex">
-      <Link
-        to={to}
-        className="group flex w-full flex-col overflow-hidden rounded-2xl border border-line bg-surface/70 transition-colors hover:border-accent"
-      >
-        <Preview item={item} />
-
-        <div className="flex flex-1 flex-col p-4">
-          <p className="truncate text-sm text-neutral-100">
-            {/* ⚠️ 不能直接渲染 {item.title} —— null 会画成空白,卡片像坏了 */}
-            {item.title ?? <span className="text-muted">未命名内容</span>}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-muted">
-            来自 {shortAddress(item.creator)}
-          </p>
-
-          <div className="mt-auto flex items-baseline justify-between pt-4">
-            <span className="font-mono tnum text-base font-semibold text-neutral-100">
-              {formatUsdc(BigInt(item.price))}
-              <span className="ml-1 text-xs font-normal text-muted">USDC</span>
-            </span>
-            <span className="text-[11px] text-accent-soft opacity-0 transition-opacity group-hover:opacity-100">
-              查看并购买 →
-            </span>
-          </div>
-        </div>
-      </Link>
-    </li>
-  )
-}
-
-/**
- * 预览图,带兜底。
- *
- * ⚠️ 兜底是**正常路径**,不是异常处理:创作者的预览图是这一版才接上的
- * (`usePublishFlow` 原先写死 `target: 'content'`),所以**在此之前创建的
- * 内容永远没有预览图** —— 而 `catalog` 扫的是链上,历史内容一并列出。
- * 再往前一步:`createContent` 是**公开函数**,绕开我们前端创建的内容
- * 也不会有预览图。多带一个商品绕开,就多一张没有图的卡。
- */
-function Preview({ item }: { item: CatalogEntry }) {
-  if (!item.previewUrl) {
-    return (
-      <div className="flex aspect-[4/3] items-center justify-center border-b border-line-soft bg-gradient-to-br from-surface-2 to-ink">
-        <span className="text-[11px] text-muted">暂无预览图</span>
-      </div>
-    )
-  }
-
-  return (
-    <img
-      src={item.previewUrl}
-      // 图是装饰,标题才是内容 —— 空 alt 让读屏器跳过它,不重复播报标题
-      alt=""
-      loading="lazy"
-      className="aspect-[4/3] w-full border-b border-line-soft bg-surface-2 object-cover"
-    />
   )
 }

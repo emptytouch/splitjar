@@ -1,7 +1,17 @@
-import { USDC } from '../../shared/chain'
+import { USDC } from './chain.js'
 
 /**
  * 人类可读值 ↔ 链上整数。
+ *
+ * ## ⚠️ 2026-09-26 从 `src/lib/units.ts` 搬到这里
+ *
+ * 原因是 W14 包 A 的筛选逻辑(`shared/filterContents.ts`)要用 `parseUsdc`
+ * 把「0.5 以下」这种**人说的话**换算成能和 `CatalogEntry.price` 比较的整数 ——
+ * 而 `shared/` **不许 import `src/`**。这正是 `shared/chain.ts` 那条规矩:
+ * 两端都要用的东西放 `shared/`,让它成为结构上的事实。
+ *
+ * 搬完 `lib/units.ts` 就没有了 —— 原路径**不保留转发文件**:留一个
+ * `export * from '../../shared/units'` 会让"这文件到底在哪"永远有两个答案。
  *
  * ⚠️ **全程走字符串,一次浮点都不碰。**
  *
