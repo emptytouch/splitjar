@@ -2,7 +2,7 @@ import { recoverTypedDataAddress, type Address, type Hex } from 'viem'
 import { errorResponse } from '../shared/api.js'
 import { normalizeTitle } from '../shared/contentMeta.js'
 import { isContentId } from '../shared/storage.js'
-import { parseUploadAuth, toUploadMessage, uploadTypedData } from '../shared/upload.js'
+import { allowsUploadTarget, parseUploadAuth, toUploadMessage, uploadTypedData } from '../shared/upload.js'
 import { getContentCreator, SPLITTER_ADDRESS } from '../server/chain.js'
 import { kvConfigured, setContentTitle } from '../server/kv.js'
 
@@ -80,8 +80,12 @@ export async function POST(request: Request): Promise<Response> {
   if (!auth) {
     return errorResponse(400, 'bad_request', '授权形状不对')
   }
-  // 见文件头:复用 `Upload` 但把用途钉死
-  if (auth.target !== 'content') {
+  // 见文件头:复用 `Upload` 但把用途钉死。
+  // ⚠️ 2026-09-25 起 `targets` 是个数组(发布时是 `['content','preview']`)——
+  // 这里要求它**必须含 `content`**,而不是"只能有 content":
+  // 标题是内容自身的属性,只要创作者确实授权了内容本身,顺手带了 preview
+  // 不该让这条请求失效(它并不会因此多拿到任何权限)。
+  if (!allowsUploadTarget(auth, 'content')) {
     return errorResponse(400, 'bad_request', '这条授权不是用于内容本身的')
   }
   const contentId = auth.contentId as Hex

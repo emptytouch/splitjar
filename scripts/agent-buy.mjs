@@ -621,9 +621,9 @@ async function send(ctx, request, title) {
     die(
       `${title} 没发出去:${msg}`,
       looksLikeRpc
-        ? `  这看着像 **RPC** 的问题(网络/限流),不是合约拒绝。\n` +
+        ? `  这看着像 RPC 的问题(网络/限流),不是合约拒绝。\n` +
             `  换端点重试:AGENT_RPC=https://avalanche-fuji-c-chain-rpc.publicnode.com node scripts/agent-buy.mjs`
-        : `  这看着像**链上**的拒绝,不是网络问题。把上面那句原话读一遍再决定要不要重跑。`,
+        : `  这看着像链上的拒绝,不是网络问题。把上面那句原话读一遍再决定要不要重跑。`,
     )
   }
   console.log(`  ${dim(`${title} 已广播`)} ${hash}`)
@@ -635,12 +635,12 @@ async function send(ctx, request, title) {
   } catch (e) {
     die(
       `${title} 的交易已广播,但等收据超时/出错:${e.message}`,
-      `  ⚠️ **这不等于失败。** 交易可能已经在链上确认了。\n` +
+      `  ⚠️ 这不等于失败 —— 交易可能已经在链上确认了。\n` +
         `  先去 explorer 看一眼,别急着重跑:${txLink(hash)}`,
     )
   }
   if (receipt.status !== 'success') {
-    die(`${title} 上链了但**执行失败**(status = ${receipt.status})。`, `  看收据:${txLink(hash)}`)
+    die(`${title} 上链了但执行失败(status = ${receipt.status})。`, `  看收据:${txLink(hash)}`)
   }
   // ⭐ 这个数值得单独打:脚本发的是**裸交易**,gasPrice 取节点建议;
   // 而浏览器钱包会自己加 1 nAVAX 的 tip —— 同一条 `pay()`,差 600 万倍。
@@ -687,7 +687,7 @@ async function step5(ctx) {
   if (ctx.avax < needAvax) {
     die(
       `AVAX 不够付 gas:有 ${formatUnits(ctx.avax, 18)},需要约 ${formatUnits(needAvax, 18)}。`,
-      `  去 faucet 领一点。⚠️ 注意脚本的 gas 口径比钱包**便宜 600 万倍**\n` +
+      `  去 faucet 领一点。⚠️ 注意脚本的 gas 口径比钱包便宜 600 万倍\n` +
         `  (裸交易取节点建议价,钱包会自己加 1 nAVAX tip)—— 所以脚本说够,不代表网页上也够。`,
     )
   }
@@ -765,7 +765,7 @@ async function step7(ctx) {
     console.log(
       dim(
         `      本机的私有 blob 数据面是不可达的(见验证手段记录),所以这一步在本机永远下不来。\n` +
-          `      **换台机器 / 换网络跑就能下。**在这之前,这一条算「没验」,不算「验不过」。`,
+          `      换台机器 / 换网络跑就能下。在这之前,这一条算「没验」,不算「验不过」。`,
       ),
     )
     ctx.downloadOutcome = 'unreachable'
@@ -795,7 +795,7 @@ async function step7(ctx) {
     field('链上 contentHash', `${chainHash} ✗ 不一致`, '链上 getContent(…)[2]')
     die(
       '下载到的字节与链上登记的 contentHash 不一致。',
-      `  要么内容被换过,要么中间有人改过。**这条不该发生**,记下来。`,
+      `  要么内容被换过,要么中间有人改过。这条不该发生,记下来。`,
     )
   }
 }

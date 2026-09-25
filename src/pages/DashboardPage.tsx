@@ -4,10 +4,13 @@ import { Card, PageHeader } from '../components/Shell'
 import { ConnectButton } from '../components/ConnectButton'
 import { ClaimPending } from '../components/ClaimPending'
 import { ActiveToggle } from '../components/ActiveToggle'
+import { PreviewBackfill } from '../components/PreviewBackfill'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
 import { explorerTx, shortAddress, shortHash } from '../lib/links'
 import { formatUsdc } from '../lib/units'
+import { titleText, type RowTitle } from '../lib/contentMeta'
 import { useMyContents } from '../hooks/useMyContents'
+import { usePreviews } from '../hooks/usePreviews'
 import { AGENT_ENTRIES } from '../../shared/agentAddresses'
 
 /**
@@ -33,10 +36,31 @@ import { AGENT_ENTRIES } from '../../shared/agentAddresses'
  * ⚠️ 配套改动:`payGate.ts` 里归属判断必须排在下架判断**之前**,否则
  * 买过的人在下架后会失去下载入口 —— 那正好违反"下架不影响已购"这条语义。
  * 两处是一件事的两半,见 `ActiveToggle` 文件头。
+ *
+ * ## 2026-09-25:「补预览图」也长在这一行上
+ *
+ * 和上下架同一个理由 —— **列表在这里**,所以"这一件缺什么"的入口也该在这里。
+ *
+ * 它收的是发布流程留下的一个尾巴:预览图上传失败**不挡发布**(内容已经在
+ * 存储里了,见 `lib/previewDerive.ts`),于是会存在一种内容 —— 链上好好的、
+ * 买家买得到、广场上那一格却是空的,而创作者**没有任何入口去补**。
+ * `/create` 在那个失败里给的承诺("入口在内容看板")就是靠这一行兑现的。
+ *
+ * ⚠️ 判据来自 `GET /api/previews`(公开 store 的读侧),**不是链上** ——
+ * 链上不存预览图。而且它有三态,"不知道"时**什么都不画**,
+ * 见 `hooks/usePreviews.ts` 文件头。
  */
 export function DashboardPage() {
   const { address, isConnected } = useAccount()
   const query = useMyContents()
+  /**
+   * 哪些内容在广场上有缩略图。
+   *
+   * ⚠️ `urls === null` 是**"不知道"**,不是"都没有" —— 见 `usePreviews`
+   * 文件头。那一整段讲的都是"为什么不知道时什么都不能画",别在这里
+   * 图省事写成 `urls?.has(id) ?? false`。
+   */
+  const previews = usePreviews()
 
   // 待提取余额(W4 的 withdraw 全链路在那一版做,这里只如实显示)
   const pending = useReadContract({
@@ -47,8 +71,8 @@ export function DashboardPage() {
     query: { enabled: Boolean(address) },
   })
 
-  const rows = query.data?.rows ?? []
-  const times = query.data?.times ?? new Map<string, Date>()
+  const rows = query.rows
+  const times = query.times
   const totalEarned = rows.reduce((a, r) => a + r.earned, 0n)
   const totalSales = rows.reduce((a, r) => a + r.sales.length, 0)
   const delisted = rows.filter((r) => !r.active).length
@@ -150,7 +174,7 @@ export function DashboardPage() {
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-100">
                           <span className="truncate">
-                            {r.title || <span className="text-muted">未命名内容</span>}
+                            <RowTitleText title={r.title} />
                           </span>
                           {/*
                             已下架的状态必须比标题更早被看到 —— 否则创作者会疑惑
@@ -160,7 +184,7 @@ export function DashboardPage() {
                           {!r.active && <StatusBadge label="已下架" tone="warn" />}
                         </p>
                         <Link
-                          to={`/p/${r.contentId}${r.title ? `?t=${encodeURIComponent(r.title)}` : ''}`}
+                          to={sharePath(r.contentId, r.title)}
                           className="font-mono text-[11px] text-muted underline decoration-line underline-offset-2 hover:decoration-accent"
                         >
                           {r.contentId.slice(0, 18)}…
@@ -185,6 +209,25 @@ export function DashboardPage() {
                       active={r.active}
                       onChanged={() => void query.refetch()}
                     />
+
+                    {/*
+                      ⚠️ **只在"确实没有"时画这个入口。**
+                      `previews.urls === null` 是"不知道"(还没拉到 / 读失败 /
+                      服务端没配公开 store)—— 那时候什么都不画。当成"没有"
+                      会让创作者在一个根本不缺缩略图的内容上白签一次名,
+                      然后收到一句说不清理由的失败(详见 `usePreviews` 文件头)。
+
+                      键一律**小写**:服务端写入时统一过 `toLowerCase()`,
+                      catalog 那边也是这么查的。少一次归一化就是"明明有、
+                      却查不到"。
+                    */}
+                    {previews.urls !== null && !previews.urls.has(r.contentId.toLowerCase()) && (
+                      <PreviewBackfill
+                        contentId={r.contentId}
+                        contentHash={r.contentHash}
+                        onUploaded={() => void previews.refetch()}
+                      />
+                    )}
 
                     {r.sales.length > 0 && (
                       <ul className="mt-3 space-y-1.5 border-t border-line-soft pt-3">
@@ -250,6 +293,78 @@ export function DashboardPage() {
       )}
     </>
   )
+}
+
+/**
+ * 标题位 —— **四态各画各的**。
+ *
+ * ⚠️ 这里最容易写错的是把那三态压成一句兜底:写成 `r.title || '未命名内容'`
+ * 就等于**替服务端断言"这件内容没有标题"**,而其中有一态明明只是
+ * "我们没读到"。方案 §14.2 禁止把读失败画成没有数据 —— 同一条纪律
+ * 在 `ExplorePage`(读链失败 vs 没有内容)和 `usePreviews`(不知道 vs 没有)
+ * 各出现过一次,这里是第三次。
+ */
+function RowTitleText({ title }: { title: RowTitle }) {
+  switch (title.k) {
+    case 'server':
+    case 'local':
+      return <>{title.text}</>
+
+    // 服务端读到了、它说没有 —— 这一句是**真的**,可以画
+    case 'none':
+      return <span className="text-muted">未命名内容</span>
+
+    /**
+     * ⚠️ 服务端那份还在路上。**给一块占位,不给一句话** ——
+     * 写「未命名内容」或「读不到」都会在半秒后被真标题打脸,
+     * 而"这一页会自己改口"比多等半秒糟。
+     *
+     * ⚠️ 底色用 `bg-line` 而**不是**列表骨架那块 `bg-surface-2`:
+     * 这一块落在行底 `bg-surface-2/40` 上,两个同族灰叠起来在截图里
+     * **几乎看不见**(2026-09-26 实拍确认)。看不见的占位和"坏了"长得一样,
+     * 而这一态**是本机开发时最常见的那一态** —— `/api/catalog` 要在服务端扫链,
+     * 实测本机 **5.5~12.9 秒**(线上约 0.7 秒)。⚠️ 别拿本机那个数字当线上行为:
+     * 本机 dev 的函数进程不带代理时还会更慢甚至 503,那是环境,不是这个端点。
+     *
+     * 时长不是重点,**占位块必须看得见才是** —— 换成别的机器/别的网络,
+     * 这个"还在路上"的窗口照样存在。
+     */
+    case 'pending':
+      return (
+        <span
+          className="inline-block h-3.5 w-24 animate-pulse rounded bg-line align-middle"
+          aria-label="标题载入中"
+        />
+      )
+
+    // 读失败,或者它不在服务端那份列表里(下架的内容不在目录里)
+    case 'unknown':
+      return (
+        <span
+          className="text-muted/70"
+          title="标题存在服务端的目录里,这一页现在读不到它 —— 内容本身不受影响"
+        >
+          标题读不到
+        </span>
+      )
+
+    default: {
+      const never: never = title
+      return never
+    }
+  }
+}
+
+/**
+ * 分享链接。
+ *
+ * ⚠️ `?t=` 只在**真拿到了标题**时才加(`titleText` 给不出就是 `null`)——
+ * 拼一个空的 `?t=` 进去,那条链接就与"没有标题"的链接长得不一样了,
+ * 而两者对买家是同一件事。
+ */
+function sharePath(contentId: string, title: RowTitle): string {
+  const t = titleText(title)
+  return `/p/${contentId}${t ? `?${new URLSearchParams({ t })}` : ''}`
 }
 
 /** 行内状态小标签 */

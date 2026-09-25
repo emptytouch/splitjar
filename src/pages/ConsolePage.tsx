@@ -10,30 +10,6 @@ import { shortAddress } from '../lib/links'
 import { AGENT_ENTRIES } from '../../shared/agentAddresses'
 import { CHAIN } from '../../shared/chain'
 
-/** W1 的完成定义,直接长在页面上 —— 打开就知道还差哪一步(开发计划 W1) */
-function Checklist() {
-  const { isConnected, chainId } = useAccount()
-  const onFuji = isConnected && chainId === CHAIN.id
-
-  const items: Array<[boolean, string]> = [
-    [true, '页面构建通过'],
-    [isConnected, '连上钱包'],
-    [onFuji, `在 ${CHAIN.name} 上`],
-  ]
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-      {items.map(([done, label]) => (
-        <span key={label} className="flex items-center gap-2 text-xs">
-          <span className={done ? 'text-emerald-400' : 'text-muted'}>{done ? '✓' : '○'}</span>
-          <span className={done ? 'text-neutral-300' : 'text-muted'}>{label}</span>
-        </span>
-      ))}
-      <span className="ml-auto text-[11px] text-muted">W1 完成定义 · 开发计划</span>
-    </div>
-  )
-}
-
 /**
  * 「你的内容」的摘要 —— 控制台只给**入口和概览**,明细在 `/dashboard`。
  *
@@ -86,7 +62,7 @@ function ContentSummary() {
     )
   }
 
-  const rows = query.data?.rows ?? []
+  const rows = query.rows
   if (rows.length === 0) {
     return <Placeholder note="还没有创建过内容 —— 点右上角「创建付费内容」开始" />
   }
@@ -295,10 +271,6 @@ export function ConsolePage() {
         >
           <ContentSummary />
         </Card>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-line-soft bg-surface/40 px-5 py-4">
-        <Checklist />
       </div>
     </>
   )

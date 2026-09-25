@@ -11,7 +11,13 @@ import {
   uploadPathname,
   type UploadTarget,
 } from '../shared/storage.js'
-import { decodeUploadClientPayload, parseUploadAuth, toUploadMessage, uploadTypedData } from '../shared/upload.js'
+import {
+  allowsUploadTarget,
+  decodeUploadClientPayload,
+  parseUploadAuth,
+  toUploadMessage,
+  uploadTypedData,
+} from '../shared/upload.js'
 import { getContentCreator, SPLITTER_ADDRESS } from '../server/chain.js'
 import { serverEnv } from '../server/env.js'
 import { errorResponse, type ApiErrorCode } from '../shared/api.js'
@@ -67,7 +73,7 @@ export async function POST(request: Request): Promise<Response> {
    *
    * 靠**形状**分流,不靠 URL 参数:SDK 发来的 `HandleUploadBody` 一定带
    * `type` 字段,我们自己的 `UploadAuthWire` 一定不带(它只有
-   * contentId/target/uploader/deadline/signature 五个)。两者在结构上
+   * contentId/targets/uploader/deadline/signature 五个)。两者在结构上
    * 不可能混淆 —— 这比"加个 query 参数区分"安全,因为**参数是客户端说了算的**,
    * 而形状判错了只会走进另一条也无害的分支。
    *
@@ -160,8 +166,14 @@ async function preflight(body: unknown): Promise<Response> {
 
   // 与真正签发门票那一步**同一个判断**(见 `POST` 里的 `tokenFor`)。
   // 两处用同一个函数,不会出现"预检说没问题、真传的时候说没配"
-  if (!tokenFor(auth.target)) {
-    return errorResponse(503, 'not_configured', '服务端未配置上传存储')
+  //
+  // ⚠️ 2026-09-25:一条授权可以覆盖**多个** store,所以逐个查。
+  // 少配一个,那一段上传就必然以那句笼统的 SDK 错误告终 ——
+  // 而"把这种重试没用的错如实说出来"正是预检存在的全部理由。
+  for (const target of auth.targets) {
+    if (!tokenFor(target)) {
+      return errorResponse(503, 'not_configured', '服务端未配置上传存储')
+    }
   }
   // 纯环境检查,不发请求 —— 但它对应的 ⑥ 是预检唯一覆盖不到的拒绝原因,
   // 而它又是最可能真实发生的那一个
@@ -171,9 +183,11 @@ async function preflight(body: unknown): Promise<Response> {
 
   // 用**服务端重算**的 pathname,与真实上传走的是同一条路径。
   // 预检要是用了别的路径,它验过的和真正会发生的就成了两回事
-  let pathname: string
+  const pathnames: string[] = []
   try {
-    pathname = uploadPathname(auth.target, auth.contentId as Hex)
+    for (const target of auth.targets) {
+      pathnames.push(uploadPathname(target, auth.contentId as Hex))
+    }
   } catch {
     // `parseUploadAuth` 的 `isBytes32` 收大小写,而 `uploadPathname` 只收小写
     // (理由见 shared/storage.ts:大小写会让同一个 contentId 对应多个 pathname)
@@ -181,8 +195,13 @@ async function preflight(body: unknown): Promise<Response> {
   }
 
   try {
-    await verifyUploadAuth(pathname, JSON.stringify(auth))
-    return Response.json({ ok: true, pathname })
+    // ⚠️ **每条路径都要过一遍验签**,不能只验第一条:签名覆盖的是整个
+    // `targets` 数组,一条授权对某几个 store 有效、对别的无效是可能的,
+    // 而那半边的问题必须在这里暴露,而不是等真传时才炸
+    for (const pathname of pathnames) {
+      await verifyUploadAuth(pathname, JSON.stringify(auth))
+    }
+    return Response.json({ ok: true, pathnames })
   } catch (error) {
     if (error instanceof UploadRejection) {
       return errorResponse(error.status, error.code, error.message)
@@ -271,7 +290,11 @@ async function authorizeUpload(
   let claimedNow: boolean
   try {
     claimedNow = await claimUploader(contentId, uploader)
-  } catch {
+  } catch (e) {
+    // ⚠️ 把真实原因记下来。这两条 503 的**对外文案是一样的**(不能给探针
+    // 更多信息),所以不给日志的话,"KV 挂了"和"代码写错了"在现场看起来
+    // 一模一样 —— 而这个文件自己在上面已经立过规矩:只有日志留得下。
+    console.error('[api/upload] 认领上传归属失败:', e)
     throw new UploadRejection(503, 'upstream_unavailable', '上传归属服务暂时不可用')
   }
   if (!claimedNow) {
@@ -281,7 +304,8 @@ async function authorizeUpload(
     let owner: string | null
     try {
       owner = await getUploader(contentId)
-    } catch {
+    } catch (e) {
+      console.error('[api/upload] 读上传归属失败:', e)
       throw new UploadRejection(503, 'upstream_unavailable', '上传归属服务暂时不可用')
     }
     // 比对一律**先小写** —— 存进去的是 checksum 形态,但大小写不同的
@@ -340,10 +364,10 @@ async function verifyUploadAuth(
   if (pathname !== expected) {
     throw new UploadRejection(400, 'bad_request', 'pathname 与授权不符', pathname)
   }
-  // 签名里的 `target` 也必须与路径一致 —— 否则一条"传预览图"的授权
+  // 签名里**必须列了这个** target —— 否则一条"传预览图"的授权
   // 就能被拿去写 `content/`(那会把付费内容写进公开 store)。
-  if (auth.target !== parsed.target) {
-    throw new UploadRejection(400, 'bad_request', 'target 与 pathname 不符', auth.target)
+  if (!allowsUploadTarget(auth, parsed.target)) {
+    throw new UploadRejection(400, 'bad_request', 'target 不在授权范围内', parsed.target)
   }
 
   const message = toUploadMessage(auth)

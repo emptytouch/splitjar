@@ -202,7 +202,7 @@ export function describeUnlockFailure(reason: UnlockFailReason, step: UnlockStep
           }
         : {
             title: '网络繁忙',
-            hint: '服务端在换下载链接时没响应。你刚才那次签名**没有被用掉**,直接重试即可。',
+            hint: '服务端在换下载链接时没响应。你刚才那次签名并没有被用掉,直接重试即可。',
             canRetry: true,
           }
 

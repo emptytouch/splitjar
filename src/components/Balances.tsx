@@ -65,7 +65,7 @@ export function Balances() {
         </div>
         <p className="border-t border-line-soft pt-4 text-[11px] leading-relaxed text-muted">
           测试币:AVAX 走 Core faucet(付 gas),USDC 走 Circle faucet(付款)。
-          Circle 限 1 USDC / 2 小时 / 地址 —— 演示前要提前攒,见开发计划 W0。
+          Circle 限 1 USDC / 2 小时 / 地址 —— 需要更多就等 2 小时后在同一地址再领。
         </p>
       </div>
     )

@@ -1,12 +1,10 @@
-import { list } from '@vercel/blob'
 import { type CatalogEntry, type CatalogResponse } from '../shared/agentPay.js'
 import { errorResponse } from '../shared/api.js'
 import { CHAIN } from '../shared/chain.js'
 import { deriveActiveState, isActive } from '../shared/contentActive.js'
-import { PREVIEW_PREFIX, parseUploadPathname } from '../shared/storage.js'
 import { listActiveChanges, listRegisteredContents, publicClient } from '../server/chain.js'
-import { serverEnv } from '../server/env.js'
 import { getContentTitles } from '../server/kv.js'
+import { loadPreviewUrls } from '../server/previews.js'
 
 /**
  * `GET /api/catalog` —— Agent 的**发现**入口(方案 §9.4 第 0 步)。
@@ -100,6 +98,12 @@ export async function GET(): Promise<Response> {
     // KV 抖动不该让整个 catalog 挂掉 —— 标题是装饰
   }
 
+  /**
+   * ⚠️ 2026-09-25:`loadPreviewUrls` 搬到了 `server/previews.ts` —— 看板要
+   * 判"这一件有没有缩略图",它有了第二个调用点。搬走的是**实现**,
+   * 这里的降级行为一个字没变:读不到就当作全部没有预览图
+   * (对 catalog 来说预览图只是装饰,不该让它的失败把商品列表一起打死)。
+   */
   const previews = await loadPreviewUrls().catch(() => new Map<string, string>())
 
   const items: CatalogEntry[] = sellable.map((c) => ({
@@ -119,46 +123,4 @@ export async function GET(): Promise<Response> {
     blockNumber: blockNumber.toString(),
   } satisfies CatalogResponse)
 }
-
-/**
- * 一次性把**所有**预览图的公开 URL 捞出来,收成 `contentId(小写) → url`。
- *
- * ## ⚠️ 为什么用 `list()` 而不是手拼 URL
- *
- * 仓库里**没有**公开 store 的 base URL 环境变量,而 store 的域名形如
- * `<storeId>.public.blob.vercel-storage.com/...`。手拼意味着把 storeId
- * 写进代码或再加一个环境变量 —— 而 `list()` 的返回项**自带完整的 `url` 字段**。
- *
- * **一次调用拿全部**,不是每件内容查一次。
- *
- * ## ⚠️ 必须翻页
- *
- * `list()` 一次只返回一页(默认 1000 条),`hasMore` / `cursor` 要自己跟。
- * 不翻页的失败模式很隐蔽:内容超过一页之后,**靠后的那些会静默地没有预览图**
- * —— 看起来像"这几件没传预览图",而不是"我们少读了一页"。
- */
-async function loadPreviewUrls(): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  const token = serverEnv('PUBLIC__READ_WRITE_TOKEN')
-  // 没配公开 store 就不查 —— 预览图全部落成 `null`,这是正常降级
-  if (!token) return out
-
-  let cursor: string | undefined
-  // 安全阀:一页 1000 条,20 页 = 2 万件内容。演示量级下永远到不了,
-  // 但"循环没有上界"是一个不该留在生产路径里的形状
-  for (let page = 0; page < 20; page++) {
-    const result = await list({ token, prefix: PREVIEW_PREFIX, cursor })
-    for (const blob of result.blobs) {
-      // ⚠️ 用 `parseUploadPathname` 拆,不要自己切字符串 —— 它同时保证了
-      // "这条路径确实形如 `preview/0x…`"。公开 store 里理论上只会有预览图,
-      // 但"理论上有"不是校验
-      const parsed = parseUploadPathname(blob.pathname)
-      if (!parsed || parsed.target !== 'preview') continue
-      out.set(parsed.contentId.toLowerCase(), blob.url)
-    }
-    if (!result.hasMore) break
-    cursor = result.cursor
-    if (!cursor) break
-  }
-  return out
-}
+

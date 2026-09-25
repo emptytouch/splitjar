@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SplitJar · 前端交互原型（low-fi wireframe）</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --line:#c9ced6; --line2:#e3e6ec;
+    --ink:#2b2f36; --mut:#8a909c; --acc:#2f6df6; --acc2:#16a34a;
+    --new:#16a34a; --enh:#d97706; --cur:#64748b; --danger:#dc2626;
+    --dash:#b8bec9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5}
+  /* ---- top bar ---- */
+  .topbar{display:flex;align-items:center;gap:16px;padding:10px 18px;background:#fff;
+    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;flex-wrap:wrap}
+  .brand{font-weight:700;font-size:16px;letter-spacing:.3px}
+  .brand small{color:var(--mut);font-weight:500;font-size:11px;margin-left:6px}
+  .brand .same{color:var(--acc);font-weight:500;font-size:11px;margin-left:8px;
+    border:1px solid #cfe0ff;background:#eef6ff;padding:2px 8px;border-radius:999px}
+  .toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut);
+    border:1px solid var(--line);padding:5px 10px;border-radius:999px;background:#fff;cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--acc)}
+  .legend{margin-left:auto;display:flex;gap:14px;font-size:11px;color:var(--mut);flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .lg-new{background:var(--new)} .lg-enh{background:var(--enh)} .lg-cur{background:var(--cur)} .lg-mv{background:#7c3aed}
+  /* ---- layout ---- */
+  .topnav{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:8px 18px;
+    background:#fafbfc;border-bottom:1px solid var(--line);position:sticky;top:53px;z-index:20}
+  .topnav h4{margin:0 8px 0 0;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+  .topnav .pdtip{margin:0 8px 0 0}
+  .topnav .navsep{width:1px;height:22px;background:var(--line);margin:0 6px}
+  .topnav button{display:inline-flex;align-items:center;gap:8px;
+    padding:8px 12px;border:1px solid transparent;border-radius:8px;
+    background:transparent;cursor:pointer;color:var(--ink);font-size:13px;white-space:nowrap}
+  .topnav button:hover{background:#eef1f6}
+  .topnav button.active{background:#fff;border-color:var(--line);font-weight:600}
+  .topnav button.api{border-style:dashed;color:var(--mut);font-size:12px}
+  .wallet{margin-left:auto;font-size:12px;color:var(--mut);border:1px solid var(--line);
+    padding:5px 10px;border-radius:999px;background:#fff;white-space:nowrap}
+  .tag{font-size:9px;padding:1px 5px;border-radius:4px;color:#fff;flex:0 0 auto}
+  .tag.new{background:var(--new)} .tag.enh{background:var(--enh)} .tag.cur{background:var(--cur)} .tag.mv{background:#7c3aed}
+  .stage{padding:22px;min-width:0;max-width:1080px;margin:0 auto}
+  .screen{display:none;max-width:920px;margin:0 auto}
+  .screen.active{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:.3}to{opacity:1}}
+  /* ---- wireframe primitives ---- */
+  .wf{border:1.5px dashed var(--dash);border-radius:12px;background:#fff;padding:16px}
+  .ph{background:repeating-linear-gradient(45deg,#eef1f6,#eef1f6 8px,#e6eaf1 8px,#e6eaf1 16px);
+    border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9aa1ad;
+    font-size:11px;font-family:ui-monospace,Menlo,monospace}
+  .row{display:flex;gap:12px}
+  .cap{margin:14px 0 0;font-size:12px;color:var(--mut);border-left:3px solid var(--line);padding:6px 12px;background:#fafbfc;border-radius:0 8px 8px 0}
+  .cap b{color:var(--ink)}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin-right:6px}
+  h2.tt{font-size:18px;margin:0 0 4px} .sub{color:var(--mut);font-size:12px;margin:0 0 14px}
+  .field{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff;color:var(--mut);font-size:13px}
+  .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:9px;padding:11px 16px;font-size:14px;cursor:pointer;font-weight:600}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.ghost{background:#fff;color:var(--ink)}
+  .btn.acc{background:var(--acc);border-color:var(--acc)}
+  .btn.green{background:var(--acc2);border-color:var(--acc2)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer;transition:.15s}
+  .card:hover{box-shadow:0 4px 16px rgba(0,0,0,.08);transform:translateY(-2px)}
+  .card .ph{height:108px;border-radius:0}
+  .card .body{padding:10px 12px}
+  .card .t{font-weight:600;font-size:13px;margin-bottom:4px}
+  .card .m{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--mut)}
+  .verified{color:var(--acc);font-size:11px}
+  .price{color:var(--ink);font-weight:700}
+  .pay{display:grid;grid-template-columns:1.3fr 1fr;gap:18px}
+  .prebox .ph{height:240px}
+  .splitline{display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-bottom:1px dashed var(--line2)}
+  .trust{display:flex;gap:10px;margin:10px 0;flex-wrap:wrap}
+  .badge{font-size:11px;padding:4px 9px;border-radius:8px;background:#eef6ff;color:#1d4ed8;border:1px solid #cfe0ff}
+  .warn{font-size:12px;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px}
+  .li{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;gap:12px;align-items:center;margin-bottom:10px;background:#fff}
+  .li .ph{width:64px;height:64px;flex:0 0 64px}
+  .li .grow{flex:1}
+  .mask{position:fixed;inset:0;background:rgba(20,24,32,.45);display:none;align-items:center;justify-content:center;z-index:50}
+  .mask.show{display:flex}
+  .modal{background:#fff;border-radius:14px;padding:22px;width:360px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .modal h3{margin:0 0 8px}
+  .link{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#f1f5f9;padding:10px;border-radius:8px;word-break:break-all;color:#334155;margin:8px 0}
+  .ok{color:var(--acc2);font-weight:700}
+  .empty{border:1.5px dashed var(--dash);border-radius:12px;padding:38px;text-align:center;color:var(--mut)}
+  .note{font-size:11px;color:var(--mut);margin-top:6px}
+  .splitbuilder .row{margin-bottom:8px;align-items:center}
+  .err{color:var(--danger);font-size:12px;font-weight:600;min-height:16px}
+  a.linklike{color:var(--acc);cursor:pointer;text-decoration:underline}
+  .stat{display:flex;gap:14px;margin-bottom:14px}
+  .stat .box{flex:1;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff}
+  .stat .n{font-size:20px;font-weight:700}
+  .stat .l{font-size:12px;color:var(--mut)}
+  .pdtip{font-size:11px;color:var(--mut);margin:0 8px 8px;background:#eef6ff;border:1px solid #cfe0ff;
+    border-radius:8px;padding:6px 9px;display:none}
+  .pdtip.show{display:block}
+  @media(max-width:760px){.nav{display:none}.pay,.grid{grid-template-columns:1fr}.stat{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">SplitJar <small>前端交互原型 · low-fi</small>
+    <span class="same">人类用户：买 + 卖（同一钱包）</span></div>
+  <label class="toggle" title="演示渐进显现：纯买家账号不显示创作入口">
+    <input type="checkbox" id="pd" onchange="togglePD(this.checked)" /> 演示：纯买家（未发布过内容）
+  </label>
+  <div class="legend">
+    <span><i class="lg-new"></i>新增 G1/G4</span>
+    <span><i class="lg-enh"></i>增强 G2/G3</span>
+    <span><i class="lg-cur"></i>现状已落地</span>
+    <span><i class="lg-mv"></i>重构收纳</span>
+  </div>
+  <span class="wallet">🔗 已连接 0xAa05…0bba</span>
+</div>
+
+<div class="topnav" id="nav"></div>
+<div class="stage" id="stage"></div>
+
+<div class="mask" id="mask"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ============ 数据 ============ */
+const items = [
+  {id:"c1", title:"极简风 PPT 模板 30 套", creator:"李明", verified:true, price:"9.9", sales:128, cat:"模板"},
+  {id:"c2", title:"小红书爆款封面素材包", creator:"阿May", verified:true, price:"6.6", sales:342, cat:"素材"},
+  {id:"c3", title:"AI 写真·职场肖像 5 款", creator:"PixelLab", verified:false, price:"12.0", sales:57, cat:"AI写真"},
+  {id:"c4", title:"从0到1独立站建站课", creator:"老王", verified:true, price:"29.0", sales:23, cat:"课程"},
+  {id:"c5", title:"节日海报 PS 源文件合集", creator:"阿May", verified:true, price:"8.8", sales:201, cat:"素材"},
+  {id:"c6", title:"Notion 知识库模板", creator:"Zoe", verified:false, price:"5.0", sales:89, cat:"模板"},
+];
+const lib = [
+  {id:"c1", title:"极简风 PPT 模板 30 套", price:"9.9", at:"09-20 14:22"},
+  {id:"c5", title:"节日海报 PS 源文件合集", price:"8.8", at:"09-18 09:11"},
+];
+
+/* ============ 屏幕定义（单一人类用户账号，创作/购买并存） ============ */
+const screens = {
+  explore:{label:"发现页 /explore", tag:"new", tagText:"G4·P0",
+    render:()=>`
+    <div class="wf">
+      <div class="row" style="margin-bottom:12px">
+        <div class="field" style="flex:1">🔍 搜索内容 / 创作者…</div>
+        <div class="field" style="width:120px">排序 ▾</div>
+      </div>
+      <div style="margin-bottom:14px">
+        <span class="pill">全部</span><span class="pill">模板</span><span class="pill">素材</span>
+        <span class="pill">课程</span><span class="pill">AI写真</span>
+      </div>
+      <div class="grid">
+        ${items.map(it=>`
+        <div class="card" onclick="goBuyer('${it.id}')">
+          <div class="ph">PREVIEW ${it.id}</div>
+          <div class="body">
+            <div class="t">${it.title}</div>
+            <div class="m">
+              <span>${it.creator} ${it.verified?'<span class="verified">✓认证</span>':''}</span>
+              <span class="price">¥${it.price}</span>
+            </div>
+            <div class="m" style="margin-top:4px"><span>已售 ${it.sales}</span><span>▸</span></div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="cap"><b>购买上下文 · 新增页 · 关闭 G4（Nielsen 1 级）。</b> 同一账号内的「购买」入口：无需创作者手动发链接也能在应用内浏览。
+    卡片直接呈现标题/创作者认证/价格/销量，符合 <b>识别胜于回忆</b>；WCAG 2.1 AA：卡片为可聚焦按钮（键盘可达），价格对比度 ≥ 4.5:1。
+    <b>落地逻辑</b>：登录后 \`/\` 默认落此页（发现），纯买家首屏即为浏览，而不再撞上开发者工作台。</div>`},
+  pay:{label:"内容/支付页 /p/:id", tag:"enh", tagText:"G2·P0",
+    render:(id)=>{
+      const it = items.find(x=>x.id===id)||items[0];
+      return `
+    <div class="wf">
+      <div class="pay">
+        <div class="prebox">
+          <div class="ph" style="height:240px">PREVIEW ${it.id}</div>
+          <h2 class="tt" style="margin-top:12px">${it.title}</h2>
+          <div class="sub">${it.creator} ${it.verified?'<span class="verified">✓认证创作者</span>':'(未认证)'} · 已售 ${it.sales} 份</div>
+          <p style="color:#475569">这是一段内容描述（G3 新增字段）：说明包含什么、适用场景、交付格式。买家落地即可判断「值不值」。</p>
+          <div class="trust">
+            <span class="badge">🔒 链上分账</span>
+            <span class="badge">✓ 创作者认证</span>
+            <span class="badge">📈 销量 ${it.sales}</span>
+          </div>
+        </div>
+        <div>
+          <div class="field" style="text-align:center;font-size:22px;font-weight:700;color:var(--ink);padding:16px">¥${it.price}</div>
+          <div style="margin:12px 0">
+            <div class="splitline"><span>创作者 ${it.creator}</span><span>70%</span></div>
+            <div class="splitline"><span>平台服务费</span><span>20%</span></div>
+            <div class="splitline"><span>推荐人</span><span>10%</span></div>
+          </div>
+          <div class="warn">⚠ 数字内容一经交付不支持退款，请确认后再购买。</div>
+          <div style="margin-top:12px">
+            <button class="btn acc" style="width:100%" id="payBtn" onclick="payAction()">连接钱包并购买</button>
+          </div>
+          <div class="note">状态机：未连接→连接钱包｜已连接→立即购买｜支付中→spinner｜成功→60s 直链弹窗｜已下架→整页遮罩（不给假按钮）。</div>
+        </div>
+      </div>
+    </div>
+    <div class="cap"><b>购买上下文 · 增强页 · 关闭 G2（Nielsen 2 级）。</b> 补信任信号：描述、预览图、创作者认证、销量、透明分账。
+    <b>防错原则</b>对应不退款提示；<b>系统状态可见性</b>对应支付中/成功；<b>帮助与文档</b>对应分账说明。WCAG：状态不只靠颜色，按钮焦点环可见。</div>`;
+    }},
+  library:{label:"我的已购 /library", tag:"new", tagText:"G1·P0",
+    render:()=>`
+    <div class="wf">
+      <h2 class="tt">我的已购</h2>
+      <div class="sub">买过的所有内容统一归拢，随时重新下载（解决「买完找不到」）。</div>
+      ${lib.length? lib.map(l=>`
+        <div class="li">
+          <div class="ph">PREVIEW ${l.id}</div>
+          <div class="grow">
+            <div style="font-weight:600">${l.title}</div>
+            <div class="note">购买于 ${l.at} · ¥${l.price}</div>
+          </div>
+          <button class="btn ghost" onclick="redownload('${l.id}')">重新下载</button>
+        </div>`).join('') : `<div class="empty">还没有购买记录，<a class="linklike" onclick="goScreen('explore')">去发现页逛逛 →</a></div>`}
+    </div>
+    <div class="cap"><b>购买上下文 · 新增页 · 关闭 G1（Nielsen 3 级）。</b> 使买家闭环 发现→决策→付款→<b>复访</b> 成立。空态提供明确下一步，符合 <b>帮助用户识别、诊断、恢复</b>。</div>`},
+  create:{label:"创建页 /create", tag:"enh", tagText:"G3·P1", creator:true,
+    render:()=>`
+    <div class="wf">
+      <h2 class="tt">发布新内容</h2>
+      <div class="sub">上传文件、填描述、传预览图、设定价与分账（同一账号的「创作」上下文）。</div>
+      <div class="row" style="margin-bottom:12px">
+        <div class="ph" style="flex:1;height:90px">拖拽 / 点击上传内容文件</div>
+        <div class="ph" style="width:160px;height:90px">预览图上传（G3 新增）</div>
+      </div>
+      <div class="field" style="margin-bottom:10px">标题：极简风 PPT 模板 30 套</div>
+      <div class="field" style="margin-bottom:10px;height:64px">描述（G3 新增 · 最多 280 字）：包含 30 套可编辑 PPT，适用于…</div>
+      <div class="field" style="margin-bottom:12px;width:200px">定价 ¥ 9.90</div>
+      <div class="splitbuilder">
+        <div class="row"><div class="field" style="flex:1">受益人地址 0xABCD…1234（创作者）</div><div class="field" style="width:90px">70 %</div></div>
+        <div class="row"><div class="field" style="flex:1">受益人地址 0xPLAT…0000（平台）</div><div class="field" style="width:90px">20 %</div></div>
+        <div class="row"><div class="field" style="flex:1">受益人地址 0xREF…9999（推荐人）</div><div class="field" style="width:90px">10 %</div></div>
+        <div class="err" id="splitErr">✓ 分账合计 = 100%</div>
+        <button class="btn green" style="width:100%;margin-top:6px" id="createBtn" onclick="createAction()">上链发布</button>
+      </div>
+    </div>
+    <div class="cap"><b>创作上下文 · 增强页 · 关闭 G3（Nielsen 2 级）。</b> 新增描述与预览图字段（原 CreatePage 自写「预览图还没做」）。
+    分账比例实时校验求和=100%，否则禁用提交并提示，落实 <b>防错原则</b>；描述/预览图直接喂给买家决策页（G2 数据源）。</div>`},
+  dashboard:{label:"我的作品·收入 /dashboard", tag:"cur", tagText:"现状", creator:true,
+    render:()=>`
+    <div class="wf">
+      <h2 class="tt">我的作品 · 收入</h2>
+      <div class="sub">读链上 PaymentSplit 渲染收入、销量、上下架、提现（同一账号的「创作」上下文）。</div>
+      <div class="stat">
+        <div class="box"><div class="n">¥ 1,284</div><div class="l">总收入</div></div>
+        <div class="box"><div class="n">156</div><div class="l">总销量</div></div>
+        <div class="box"><div class="n">¥ 320</div><div class="l">待提现</div></div>
+      </div>
+      <div class="li"><div class="ph" style="width:56px;height:56px">IMG</div>
+        <div class="grow"><div style="font-weight:600">极简风 PPT 模板 30 套</div><div class="note">销量 128 · 收入 ¥1,267</div></div>
+        <button class="btn ghost">下架</button><button class="btn">提现</button></div>
+      <div class="li"><div class="ph" style="width:56px;height:56px">IMG</div>
+        <div class="grow"><div style="font-weight:600">节日海报 PS 源文件</div><div class="note">销量 28 · 收入 ¥246</div></div>
+        <button class="btn ghost">下架</button><button class="btn">提现</button></div>
+    </div>
+    <div class="cap"><b>创作上下文 · 现状已落地 + 重构收纳。</b> 收入/销量读 PaymentSplit、上下架用 ActiveToggle、提现用 pendingBalance；
+    现同时收纳原 ConsolePage「你的内容」统计（内容/成交/累计收入），消除同一信息两处存放。ConsolePage 的开发痕迹（W1 footer 等）随探针/接入一并迁入 /dev（G6·P2）。</div>`},
+  agent:{label:"机器买家 API（非界面）", tag:"cur", tagText:"G5·P1", api:true,
+    render:()=>`
+    <div class="wf">
+      <h2 class="tt">机器买家（AI Agent）· 独立程序</h2>
+      <div class="sub">非 UI actor（独立私钥的程序）。与人类用户共用 pay() / PaymentSplit；建议补齐 catalog 描述/销量字段。</div>
+      <div class="field" style="font-family:ui-monospace,Menlo,monospace;white-space:pre;color:#334155">
+GET /api/catalog
+  ← 200 列表 (title/preview/price/creator)
+     ⚠ 缺口：缺 description / salesCount（G5·P1）
+
+GET /api/content/:id
+  ← 402 Payment Required
+     { quote: {amount, currency, nonce, chainId, contract, splitter} }
+
+agent: approve + pay(bytes32)  // 上链
+GET /api/content/:id  + 头 X-Payment: &lt;base64&gt;
+  ← 200 直链（五校验通过后交付）</div>
+      <div class="err">建议：catalog 返回 description/salesCount → 人类用户浏览页(Explore) 也复用同一数据源，同时关 G4 与 G5。</div>
+    </div>
+    <div class="cap"><b>独立 actor · 现状 + G5（Nielsen 2 级）。</b> 机器买家链路已闭环，但 catalog 数据源缺描述/销量，既削弱 Agent「挑内容」能力，也卡住人类浏览页数据源。</div>`},
+  dev:{label:"开发者页 /dev", tag:"mv", tagText:"重构·P1",
+    render:()=>`
+    <div class="wf">
+      <h2 class="tt">开发者页 /dev</h2>
+      <div class="sub">开发者 / 评委专用。原「创作者控制台」里的链上探针与 Agent 接入已整体挪到这里，创作者界面不再含此类信息（关 G6 扩展）。</div>
+      <h3 style="margin:14px 0 6px;font-size:14px">链上探针（gas 计费口径）</h3>
+      <div class="li" style="border:none;padding:6px 0"><div class="field" style="flex:1">计费口径：节点建议价 / 钱包默认小费（切换 tabs）</div></div>
+      <div class="splitline"><span>gasPrice（实时口径）</span><span>1 nAVAX</span></div>
+      <div class="splitline"><span>一笔 3 方 pay()</span><span>0.00025 AVAX ≈ 250,000 gas</span></div>
+      <div class="splitline"><span>定价门槛</span><span>AVAX $20 → 占 $0.2 的 2.5%</span></div>
+      <div class="err">⚠ 250,000 gas 为 helper 上界非实测；须用 forge script 实测替换，按进度方案 §12.2 表格，随 Avalanche Fuji 43113。</div>
+      <h3 style="margin:18px 0 6px;font-size:14px">Agent 接入（HTTP 402）</h3>
+      <div class="field" style="font-family:ui-monospace,Menlo,monospace;white-space:pre;color:#334155">
+GET /api/catalog                ← 列表
+GET /api/content/:id            ← 402 + 一份报价
+CreatorSplitter.pay(contentId)   ← 链上付款（按比例自动分）
+GET /api/content/:id + X-Payment ← 用同一 code 取对应直链</div>
+      <div class="field" style="font-family:ui-monospace,Menlo,monospace;white-space:pre;color:#334155;margin-top:8px">
+export AGENT_PRIVATE_KEY=0x…
+node scripts/agent-buy.mjs --dry-run   # 四步不花钱
+# 去掉 --dry-run 后：付款那一刻之前</div>
+      <div class="note">Dashboard 的 Agent 由地址白名单判定（shared/agentAddresses.json），非自动识别。示例 0x001548_38CF。</div>
+    </div>
+    <div class="cap"><b>重构收纳 · P1。</b> 将 ConsolePage 内的「链上探针 + Agent 接入」整体迁到独立 /dev，创作者界面归一为「发现 / 我的已购 / 创建 / 我的作品·收入」。评委演示入口保留，且不与买家/创作者心智模型冲突。
+    WCAG：代码块为等宽 + 灰底，正文字对比度达标；交互焦点环可见。</div>`},
+};
+
+/* ============ 统一导航（渐进显现） ============ */
+const navItems = [
+  {key:"explore"}, {key:"pay"}, {key:"library"},
+  {sep:"购买"},
+  {key:"create"}, {key:"dashboard"},
+  {sep:"其他 actor"},
+  {key:"agent"},
+  {sep:"开发者"},
+  {key:"dev"},
+];
+let pureBuyer=false;
+
+function buildNav(){
+  const nav=document.getElementById('nav');
+  let html=`<h4>人类用户（同一钱包）</h4><div class="pdtip ${pureBuyer?'show':''}" id="pdtip">纯买家模式：已隐藏「创作」入口（首次发布后自动显现）。</div>`;
+  navItems.forEach(it=>{
+    if(it.sep){ html+=`<span class="navsep"></span>`; return; }
+    const s=screens[it.key];
+    if(pureBuyer && s.creator) return;               // 渐进显现：纯买家不显示创作入口
+    const cls = s.api? 'api':'';
+    html+=`<button class="${it.key===curScreen?'active':''} ${cls}" onclick="goScreen('${it.key}')">
+      <span class="tag ${s.tag}">${s.tagText}</span>${s.label}</button>`;
+  });
+  nav.innerHTML=html;
+}
+function togglePD(on){
+  pureBuyer=on;
+  if(pureBuyer && (curScreen==='create'||curScreen==='dashboard')) curScreen='explore';
+  render();
+}
+function goScreen(k){curScreen=k; render();}
+function goBuyer(id){curItem=id; curScreen='pay'; render();}
+function render(){
+  buildNav();
+  const st=document.getElementById('stage');
+  const s=screens[curScreen];
+  st.innerHTML=`<div class="screen active">${s.render(curScreen==='pay'?curItem:null)}</div>`;
+}
+function payAction(){
+  const b=document.getElementById('payBtn');
+  if(b.dataset.s==='done')return;
+  if(b.dataset.s!=='ready'){b.textContent='已连接 · 立即购买 ¥'+ (items.find(x=>x.id===curItem).price); b.dataset.s='ready'; return;}
+  b.textContent='支付中…'; b.disabled=true;
+  setTimeout(()=>{ b.dataset.s='done';
+    showModal(`<h3 class="ok">✓ 购买成功</h3>
+      <p style="font-size:13px;color:#475569">内容已解锁，直链 60 秒内有效，请尽快下载：</p>
+      <div class="link">https://splitjar.vercel.app/dl/${curItem}?t=60s&sig=0x9f…</div>
+      <button class="btn green" style="width:100%" onclick="closeModal()">复制并下载</button>
+      <div style="margin-top:10px;text-align:center"><a class="linklike" onclick="closeModal();goScreen('library')">查看「我的已购」→</a></div>`);
+  },900);
+}
+function redownload(id){
+  showModal(`<h3 class="ok">✓ 重新下载</h3>
+    <p style="font-size:13px;color:#475569">有效期 60 秒：</p>
+    <div class="link">https://splitjar.vercel.app/dl/${id}?t=60s&sig=0x…</div>
+    <button class="btn green" style="width:100%" onclick="closeModal()">复制并下载</button>`);
+}
+function createAction(){
+  const b=document.getElementById('createBtn');
+  b.textContent='上链中…'; b.disabled=true;
+  setTimeout(()=>{ showModal(`<h3 class="ok">✓ 已发布</h3>
+    <p style="font-size:13px;color:#475569">内容指纹已上链，分享链接已生成：</p>
+    <div class="link">https://splitjar.vercel.app/p/${curItem}</div>
+    <button class="btn acc" style="width:100%" onclick="closeModal()">复制分享链接</button>`);
+  },800);
+}
+function showModal(h){document.getElementById('modal').innerHTML=h;document.getElementById('mask').classList.add('show');}
+function closeModal(){document.getElementById('mask').classList.remove('show');}
+document.getElementById('mask').onclick=e=>{if(e.target.id==='mask')closeModal();};
+let curScreen="explore", curItem="c1";
+render();
+</script>
+</body>
+</html>

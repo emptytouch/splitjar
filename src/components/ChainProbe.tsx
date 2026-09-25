@@ -85,7 +85,7 @@ export function ChainProbe() {
             <span className="shrink-0 text-xs text-muted">AVAX</span>
           </div>
           <p className={`mt-1.5 leading-relaxed ${LABEL}`}>
-            ≈{ESTIMATED_PAY_GAS.toLocaleString()} gas · W2 实测替换
+            ≈{ESTIMATED_PAY_GAS.toLocaleString()} gas
           </p>
         </div>
 
@@ -127,9 +127,8 @@ export function ChainProbe() {
 
       <p className="border-t border-line-soft pt-4 text-[11px] leading-relaxed text-muted">
         ⚠️ {ESTIMATED_PAY_GAS.toLocaleString()} gas 是
-        <span className="text-neutral-300">抽样上界</span>,不是实测;W2 部署后
-        必须用 <code className="text-neutral-400">forge script</code> 实测替换,并填进方案
-        §12.2 的表格。链:{CHAIN.name} · {CHAIN.id}
+        <span className="text-neutral-300">抽样上界</span>,不是实测值 ——
+        真实消耗随分账方数量与链上状态浮动。链:{CHAIN.name} · {CHAIN.id}
       </p>
     </div>
   )

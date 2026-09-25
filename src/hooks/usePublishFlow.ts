@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { Hex } from 'viem'
 import { useAccount, useSignTypedData, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
-import { uploadPathname } from '../../shared/storage'
+import { uploadPathname, type UploadTarget } from '../../shared/storage'
 import { RECEIPT_TIMEOUT_MS, isUserRejection, shortReason } from '../lib/payErrors'
 import {
   PUBLISH_INITIAL,
@@ -23,11 +23,13 @@ import {
   preflightUpload,
   publishContentTitle,
 } from '../lib/uploadApi'
+import { derivePreview, previewBlobOf } from '../lib/previewDerive'
 import type { UploadAuthWire } from '../../shared/upload'
 
 /**
- * 发布流程 —— 把「选文件 → 算哈希 → 签授权 → 直传 → 创建交易 → 等上链」
- * 串起来。纯逻辑在 `lib/publishMachine.ts`,网络在 `lib/uploadApi.ts`,
+ * 发布流程 —— 把「选文件 → 算哈希 + 派生预览图 → 签授权 → 直传(内容 + 预览图)
+ * → 创建交易 → 等上链」串起来。纯逻辑在 `lib/publishMachine.ts`,
+ * 网络在 `lib/uploadApi.ts`,预览图的派生在 `lib/previewDerive.ts`,
  * 这里只管**接线**。
  *
  * ## ⚠️ 与 `usePayFlow` 的关键差别:这里是**点击驱动**的
@@ -124,7 +126,7 @@ export function usePublishFlow(contentId: Hex) {
    */
   const running = useRef(false)
 
-  // ── 选文件:立刻算哈希 ─────────────────────────────────────────────
+  // ── 选文件:立刻算哈希 + 派生预览图 ────────────────────────────────
   const pickFile = useCallback(async (file: File): Promise<FileProblem | null> => {
     // 门禁在这里先过一遍,过了才进状态机 —— 太大/空文件不该让界面
     // 先进"正在计算指纹"再失败
@@ -133,7 +135,19 @@ export function usePublishFlow(contentId: Hex) {
 
     dispatch({ type: 'pick', file })
     try {
-      dispatch({ type: 'hashed', hash: await computeFileHash(file) })
+      /**
+       * ⚠️ 两件事**并行**跑,不排队。
+       *
+       * 它们互不依赖 —— 一个读字节算 keccak256,一个解码取一帧画面。
+       * 串行的话大文件会白白多等一个来回,而这个等待发生在"选完文件"
+       * 到"能提交"之间,是用户最盯着看的那一段。
+       *
+       * ⚠️ `derivePreview` **永不抛**(它把解不开的文件收成 `unavailable`,
+       * 那是一条正常出路,见 `lib/previewDerive.ts`)。所以这里的 `catch`
+       * 实际上只可能接住 `computeFileHash` 抛的东西 —— 也就是"读不出文件"。
+       */
+      const [hash, preview] = await Promise.all([computeFileHash(file), derivePreview(file)])
+      dispatch({ type: 'hashed', hash, preview })
       return null
     } catch {
       // 读文件失败在正常浏览器里几乎不可能(文件被删/改权限)。退回重选
@@ -182,6 +196,19 @@ export function usePublishFlow(contentId: Hex) {
 
       // 出错时用它判断"倒在哪一段" —— 同样是链上的失败,倒在上传那一段
       // 和倒在创建那一段,用户要做的事完全不一样
+      /**
+       * 这次要往哪几个 store 写 —— **一次签名覆盖全部**(2026-09-25 起)。
+       *
+       * ⚠️ 有预览图就同时授权 `preview`,没有就只授权 `content`。
+       * 派生不出来的类型(PDF/压缩包)走的是后者,那条路和 W13 之前完全一样。
+       * 刻意**不**无条件写上 `preview`:签名里列了却没用到,
+       * 等于白给一条"可以往公开 store 写"的授权。
+       *
+       * ⚠️ 顺序即签名的一部分,服务端逐元素比对 —— 见 `authorizeUpload`
+       */
+      const previewBlob = previewBlobOf(draft.preview)
+      const targets: readonly UploadTarget[] = previewBlob ? ['content', 'preview'] : ['content']
+
       let phase: SubmitStep = start
       try {
         if (start === 'authorizing') {
@@ -189,7 +216,7 @@ export function usePublishFlow(contentId: Hex) {
           dispatch({ type: 'step', step: 'authorizing' })
           const wire = await authorizeUpload({
             contentId,
-            target: 'content',
+            targets,
             uploader: address,
             signTypedData: signTypedDataAsync,
           })
@@ -202,6 +229,10 @@ export function usePublishFlow(contentId: Hex) {
            * ⚠️ 顺序必须是"先签名再预检":预检要验签名,没签名它只能回 400。
            * 代价是配置错了的部署会先花掉用户一次签名 —— 可接受,那是一次
            * **不花钱**的签名,而且这条路只有部署者会走。
+           *
+           * ⚠️ 它会**逐个 pathname** 验一遍(见 `api/upload.ts` 的 `preflight`),
+           * 所以"公开 store 那份凭证没配"这种错在这里就会被指出来,
+           * 而不是等内容传完、轮到预览图时才炸。
            */
           await preflightUpload(wire)
 
@@ -214,6 +245,39 @@ export function usePublishFlow(contentId: Hex) {
             wire,
             onProgress: setProgress,
           })
+
+          /**
+           * 预览图 —— **尽力而为,失败了不挡发布**。
+           *
+           * 理由与下面那个"写标题"完全相同:内容已经在存储里了,
+           * 而预览图只是广场网格里的一张索引图(见 `lib/previewDerive.ts`)。
+           * 让它把整次发布变成失败,代价是用户白重传一次几百 MiB 的内容。
+           *
+           * ⚠️ 也**不能**反过来"失败就退回 `authorizing` 重试":重试会把
+           * `content/<contentId>` 再写一遍,而平台 `allowOverwrite: false`
+           * 会直接拒 —— 用户看到的就成了"重试也没用"。
+           * 补预览图的正当入口在内容看板,不在重试。
+           *
+           * ⚠️ 副作用:进度条会从 100% 掉回 0 再走一遍。那是预览图在传,
+           * 它是几百 KB 的图,一闪而过;不为它单独做一段文案和状态。
+           */
+          if (previewBlob) {
+            try {
+              await directUpload({
+                file: previewBlob,
+                target: 'preview',
+                pathname: uploadPathname('preview', contentId),
+                wire,
+                onProgress: setProgress,
+              })
+            } catch (e) {
+              console.warn(
+                '[splitjar] 预览图没能传上去 —— 内容本身不受影响,广场上这一件会没有缩略图',
+                e,
+              )
+            }
+          }
+
           dispatch({ type: 'uploaded' })
         }
 

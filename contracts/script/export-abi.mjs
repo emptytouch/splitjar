@@ -73,7 +73,7 @@ try {
   abi = JSON.parse(raw)
 } catch {
   console.error('forge inspect 的输出不是 JSON。')
-  console.error('⚠️ Foundry 1.7.1 默认打印**带边框的人读表格**,必须带 `--json`。')
+  console.error('⚠️ Foundry 1.7.1 默认打印带边框的人读表格,必须带 `--json`。')
   process.exit(1)
 }
 

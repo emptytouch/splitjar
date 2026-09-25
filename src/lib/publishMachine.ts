@@ -1,6 +1,7 @@
 import type { Hex } from 'viem'
 import { UPLOAD_DEADLINE_SECONDS } from '../../shared/upload'
 import { ALLOWED_CONTENT_TYPES, MAX_UPLOAD_BYTES, type UploadTarget } from '../../shared/storage'
+import type { PreviewDerivation } from './previewDerive'
 
 /**
  * 发布流程状态机 —— **纯逻辑,不引 React,不碰网络**。
@@ -44,14 +45,19 @@ export type PublishStep = 'hashing' | 'authorizing' | 'uploading' | 'creating' |
 export type SubmitStep = Exclude<PublishStep, 'hashing'>
 
 /**
- * 「备好的文件」—— 一路带着走的那两样东西。
+ * 「备好的文件」—— 一路带着走的那几样东西。
  *
- * ⚠️ 把 `file` 和 `hash` **绑在一个值里**,而不是拆成两个字段散在各状态上:
+ * ⚠️ 把 `file` / `hash` / `preview` **绑在一个值里**,而不是拆成几个字段散在各状态上:
  * 它们必须同时有效。拆开的话会出现"哈希已经换成新的、文件还是旧的那个"
  * 这种组合,而那个组合的后果是**上链的指纹和实际传上去的文件对不上** ——
  * 买家下载完验一遍会发现对不上,而这个 bug 从签名那一步完全看不出来。
+ *
+ * ⚠️ `preview` 进这个值也是同一个理由:预览图**派生自** `file`。
+ * 它要是留在外面,"换文件之后预览图还是上一份的"就成了一个表示得出来的状态 ——
+ * 而那会让买家在广场上看到 A 的缩略图、点进去买的是 B。
+ * (派生不出来的类型是 `unavailable` 而不是 null,见 `lib/previewDerive.ts`)
  */
-export type Draft = { file: File; hash: Hex }
+export type Draft = { file: File; hash: Hex; preview: PreviewDerivation }
 
 /**
  * 发布失败的**出路分类** —— 与 `payMachine.FailReason` / `unlockMachine.UnlockFailReason`
@@ -108,7 +114,14 @@ export type PublishFailReason =
 export type PublishState =
   /** 还没选文件 */
   | { k: 'editing' }
-  /** 正在算 keccak256。文件大的时候要一两秒 */
+  /**
+   * 正在算 keccak256 + 派生预览图。文件大的时候要一两秒。
+   *
+   * ⚠️ 两件事**共用这一个状态**,不拆成两个:它们都由"选文件"触发、
+   * 都在提交之前完成、都在 `Draft` 里同时落地。拆开会让界面出现
+   * "指纹好了但预览图还在转"这种中间态,而那对用户没有任何意义 ——
+   * 他能做的动作(填价格)两件事没做完时本来就都能做。
+   */
   | { k: 'hashing'; file: File }
   /** 文件备好了,可以提交 */
   | { k: 'ready'; draft: Draft }
@@ -151,8 +164,8 @@ export type PublishState =
 export type PublishAction =
   /** 用户选了文件(或换了一个)—— 开始算哈希 */
   | { type: 'pick'; file: File }
-  /** 哈希算好了 */
-  | { type: 'hashed'; hash: Hex }
+  /** 哈希算好了、预览图也派生好了(派生不出来时是 `unavailable`,同样是"好了") */
+  | { type: 'hashed'; hash: Hex; preview: PreviewDerivation }
   /** 提交(首次或重试)。重试时按 `uploaded` 决定从哪一步接 */
   | { type: 'submit' }
   /** 推进步骤 */
@@ -220,8 +233,11 @@ export function publishReducer(state: PublishState, action: PublishAction): Publ
 
     case 'hashed':
       // 只在"正在算"时接受结果。算到一半用户又换了一个文件时,
-      // 旧那次的结果会在这里被丢弃(新的一次已经把它顶成 hashing 了)
-      return state.k === 'hashing' ? { k: 'ready', draft: { file: state.file, hash: action.hash } } : state
+      // 旧那次的结果会在这里被丢弃(新的一次已经把它顶成 hashing 了)。
+      // ⚠️ 指纹和预览图**一起收下或者一起丢掉** —— 见 `Draft` 那段
+      return state.k === 'hashing'
+        ? { k: 'ready', draft: { file: state.file, hash: action.hash, preview: action.preview } }
+        : state
 
     case 'submit': {
       // 只有"文件已备好"或"失败了要重试"两种情形能提交。
@@ -386,8 +402,8 @@ export function formatBytes(n: number): string {
  */
 export const PUBLISH_STEP_COPY: Record<PublishStep, { title: string; hint: string }> = {
   hashing: {
-    title: '正在计算文件指纹…',
-    hint: '算出文件的 keccak256。这个指纹会上链,买家下载完可以自己验一遍,证明拿到的东西没被掉包。',
+    title: '正在读取文件…',
+    hint: '同时做两件事:算文件的 keccak256 指纹(会上链,买家下载完可以自己验一遍),以及从文件里生成一张带水印的预览图。',
   },
   authorizing: {
     title: '请在钱包里签名(第 1 次 · 不花钱)',
@@ -463,7 +479,7 @@ export function describePublishFailure(
       // ⚠️ 这条**绝不能**给重试按钮 —— 见类型定义上那段
       return {
         title: '没等到链上的回执',
-        hint: '这不等于失败:交易可能已经成功,只是回执还没回来,所以**不要重复提交**。稍等片刻后打开看板看看有没有这条内容;也可以照着下面那行交易哈希去区块浏览器上查一眼。',
+        hint: '这不等于失败:交易可能已经成功,只是回执还没回来,所以千万别重复提交。稍等片刻后打开看板看看有没有这条内容;也可以照着下面那行交易哈希去区块浏览器上查一眼。',
         canRetry: false,
       }
 

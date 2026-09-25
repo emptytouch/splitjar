@@ -24,9 +24,9 @@ import { type UploadTarget } from './storage.js'
  * 解法是:**服务端签发一个受限 token**(限定 pathname、限定 `put`、短有效期),
  * 而签发之前先要求上传者证明身份 —— 就是这条 `Upload` 签名。
  *
- * ## 为什么签名里有 `target`
+ * ## 为什么签名里有 `targets`
  *
- * `target`(内容 / 预览图)决定了这份文件**落到哪个 store** ——
+ * `targets`(内容 / 预览图)决定了这份文件**落到哪个 store** ——
  * `content/` 是私有、`preview/` 是公开 CDN。如果它不进签名,
  * 一条为"上传预览图"签发的授权就能被拿去传 `content/` 那条路径,
  * 于是**付费内容被写进公开 store,变成人人可读**。
@@ -34,6 +34,23 @@ import { type UploadTarget } from './storage.js'
  * 换句话说:一条签名应该只够干一件事。这跟方案 §四 对受限 token 的要求
  * ("签一个宽松的 token 等于把 store 的写权限发出去了")是同一个道理,
  * 只不过这里收紧的是签名本身。
+ *
+ * ## ⚠️ 2026-09-25:单个 `target: string` → `targets: string[]`
+ *
+ * 起因是发布要同时往两个 store 写(内容 + 派生出来的预览图),而**每个
+ * `target` 都要一次独立签名** ⇒ 发布时的钱包弹窗从 2 次变 3 次。
+ * 改成**在签名里逐一列举**允许的 store,一次签名覆盖两者。
+ *
+ * ⚠️ **这确实放松了上面那条"一条签名只够干一件事"**,如实记下代价:
+ * 签名里说 `['content','preview']` 的人,也同时授权了往公开 store 写
+ * `preview/<contentId>`。危害是有界的 —— 签名同时钉死了 `uploader`,
+ * 所以能写公开路径的**只有创作者本人**;而"把付费内容传到公开路径"
+ * 只有客户端自己干得出来(那等于自己泄自己的货,不构成新攻击面)。
+ * 仍然不许的是:让**没有出现在数组里**的 store 被写到。
+ *
+ * ⚠️ **数组的顺序与内容都是签名的一部分。** 服务端 `parseUploadAuth` 只做
+ * **逐元素合法性校验**,绝不排序、去重或改写 —— 动一下验签就会**静默失败**
+ * (报错只说"签名不符",看不出是数组被动过)。
  *
  * ## 为什么**没有** nonce(2026-09-23 定)
  *
@@ -55,14 +72,14 @@ import { type UploadTarget } from './storage.js'
  * ⚠️ **字段顺序是签名的一部分,不要重排。** 打乱顺序不会报错,
  * 只会让所有签名静默失效。
  *
- * `target` 用 `string` 而不是 `uint8` 枚举:方案 §9.2 选 EIP-712 而不是
+ * 元素用 `string` 而不是 `uint8` 枚举:方案 §9.2 选 EIP-712 而不是
  * `personal_sign` 的**首要理由就是"钱包里显示什么"** —— 用户看到
- * `target: "preview"` 能明白自己在授权什么,看到 `target: 1` 不能。
+ * `targets: ["content", "preview"]` 能明白自己在授权哪几个位置,看到 `[1, 2]` 不能。
  */
 export const UPLOAD_TYPES = {
   Upload: [
     { name: 'contentId', type: 'bytes32' },
-    { name: 'target', type: 'string' },
+    { name: 'targets', type: 'string[]' },
     { name: 'uploader', type: 'address' },
     { name: 'deadline', type: 'uint256' },
   ],
@@ -88,8 +105,8 @@ export function isUploadTarget(value: string): value is UploadTarget {
 /** 签名消息的"计算形态" —— 值是真 bigint,直接喂给 viem 签/验 */
 export type UploadMessage = {
   contentId: Hex
-  /** 落到哪个 store —— 见上面"为什么签名里有 target" */
-  target: UploadTarget
+  /** 允许落到哪几个 store —— 见上面"为什么签名里有 targets"。⚠️ **顺序即签名的一部分** */
+  targets: readonly UploadTarget[]
   uploader: Address
   /** unix 秒。注意是**秒**不是毫秒 */
   deadline: bigint
@@ -102,19 +119,19 @@ export type UploadMessage = {
 export type UploadAuthWire = {
   contentId: string
   /**
-   * ⚠️ 这里**不是** `string`,而是收窄过的 `UploadTarget` —— 与同一条 wire 上
-   * 其余字段的处理方式不同,是有意的:
+   * ⚠️ 这里**不是** `string[]`,而是**逐元素收窄过的** `UploadTarget[]` ——
+   * 与同一条 wire 上其余字段的处理方式不同,是有意的:
    *
    * `contentId` / `uploader` / `deadline` 的形状校验交给下游各自那道门
    * (`uploadPathname` 只收小写、比较地址时先小写、`toUploadMessage` 再解一次),
-   * 所以它们的类型停在"一个字符串"。但 `target` 只有 `isUploadTarget` 这一道门,
+   * 所以它们的类型停在"一个字符串"。但 `targets` 只有 `isUploadTarget` 这一道门,
    * 而它直接决定**这份文件落哪个 store** —— 落错了就是把付费内容写进公开 store。
    *
-   * 所以 `parseUploadAuth` 验过之后,类型上就如实收窄成 `UploadTarget`,
-   * 让**每一个**拿到 `auth.target` 的地方都自动是安全的,而不是各自记得再判一次。
+   * 所以 `parseUploadAuth` 验过之后,类型上就如实收窄成 `UploadTarget[]`,
+   * 让**每一个**拿到 `auth.targets` 的地方都自动是安全的,而不是各自记得再判一次。
    * 类型在这里不是装饰,它是"只有一处能决定去哪个 store"这条纪律的载体。
    */
-  target: UploadTarget
+  targets: readonly UploadTarget[]
   uploader: string
   deadline: string
   signature: string
@@ -145,15 +162,34 @@ export function uploadTypedData(
  * ⚠️ 服务端**必须先过这一关再碰密码学**。返回 `null` 就是"这不是一个合法请求"。
  */
 export function parseUploadAuth(raw: unknown): UploadAuthWire | null {
-  const fields = parseStringFields(raw, ['contentId', 'target', 'uploader', 'deadline', 'signature'])
+  // ⚠️ `targets` **不在这个列表里** —— `parseStringFields` 只认字符串字段,
+  // 数组过不去,所以它单独校验(见下)。
+  const fields = parseStringFields(raw, ['contentId', 'uploader', 'deadline', 'signature'])
   if (!fields) return null
 
-  const { contentId, target, uploader, deadline, signature } = fields
+  const { contentId, uploader, deadline, signature } = fields
   if (!isBytes32(contentId)) return null
-  if (!isUploadTarget(target)) return null
   if (!isAddress(uploader)) return null
   if (!isStandardSignature(signature)) return null
   if (parseUint256(deadline) === null) return null
+
+  /**
+   * ⚠️⚠️ **只校验,绝不改写这个数组。**
+   *
+   * 它整个是签名覆盖的消息的一部分 —— 排一次序、去一次重、换成 `Set`,
+   * 都会让服务端算出的 digest 与用户签的那个不一样,于是**验签静默失败**
+   * (错误只说"签名与上传者地址不符",看不出是数组被动过手脚)。
+   * 所以下面新建的那个数组里,**元素与顺序必须与原数组逐项相同**。
+   *
+   * 空数组直接拒:它一个 store 都没授权,是畸形输入而不是"什么都不许"。
+   */
+  const rawTargets = (raw as { targets?: unknown }).targets
+  if (!Array.isArray(rawTargets) || rawTargets.length === 0) return null
+  const targets: UploadTarget[] = []
+  for (const t of rawTargets) {
+    if (typeof t !== 'string' || !isUploadTarget(t)) return null
+    targets.push(t)
+  }
 
   // 地址归一化成 checksum 形态 —— 理由与 `parseUnlockWire` 完全相同:
   // 下游要拿它做**大小写敏感的字符串比较**(比对恢复出的地址、比对 KV 里的归属),
@@ -162,22 +198,47 @@ export function parseUploadAuth(raw: unknown): UploadAuthWire | null {
   // 会拒掉合法的小写地址。
   return {
     contentId,
-    target,
+    targets,
     uploader: getAddress(uploader.toLowerCase() as Address),
     deadline,
     signature,
   }
 }
 
+/**
+ * 这条授权**允不允许**写某个 store。
+ *
+ * 服务端唯一该用的判断就是这个 —— 别处自己写 `auth.targets.includes(...)`
+ * 会让"哪些 store 被授权"这件事出现第二个定义处。
+ *
+ * ⚠️ 它**只回答"允不允许"**,不回答"该不该":`content-meta` 那条端点额外
+ * 要求授权里**必须含 `content`**(标题是内容自身的属性,和预览图无关)。
+ */
+export function allowsUploadTarget(
+  auth: Pick<UploadAuthWire, 'targets'>,
+  target: UploadTarget,
+): boolean {
+  return auth.targets.includes(target)
+}
+
 /** 传输形态 → 计算形态。只对已通过 `parseUploadAuth` 的值用 */
 export function toUploadMessage(wire: UploadAuthWire): UploadMessage {
   const deadline = parseUint256(wire.deadline)
-  if (deadline === null || !isUploadTarget(wire.target)) {
+  // ⚠️ 运行时再验一遍 `targets` 而不是信类型:这个函数的入参在类型上已经是
+  // `UploadTarget[]`,但**从网络反序列化出来的对象不经过类型系统**。
+  // 它同时守住"空数组"这个畸形输入(空数组等于什么都不许,不该算合法授权)
+  if (
+    deadline === null ||
+    !Array.isArray(wire.targets) ||
+    wire.targets.length === 0 ||
+    !wire.targets.every((t) => isUploadTarget(t))
+  ) {
     throw new Error('toUploadMessage: 未经 parseUploadAuth 校验的输入')
   }
   return {
     contentId: wire.contentId as Hex,
-    target: wire.target,
+    // ⚠️ 原样传引用,不复制、不排序 —— 见 `parseUploadAuth` 里那段
+    targets: wire.targets,
     uploader: wire.uploader as Address,
     deadline,
   }
@@ -187,7 +248,7 @@ export function toUploadMessage(wire: UploadAuthWire): UploadMessage {
 export function fromUploadMessage(message: UploadMessage, signature: Hex): UploadAuthWire {
   return {
     contentId: message.contentId,
-    target: message.target,
+    targets: message.targets,
     uploader: message.uploader,
     deadline: message.deadline.toString(),
     signature,

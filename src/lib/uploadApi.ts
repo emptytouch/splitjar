@@ -166,10 +166,14 @@ export async function preflightUpload(wire: UploadAuthWire): Promise<void> {
  *
  * ## 为什么复用**同一条** `Upload` 签名,而不是新签一条
  *
- * 判据是"这条签名管的是不是同一件事":`Upload` 已经钉死了 `target: 'content'`
- * (见 `shared/upload.ts`),而它的含义就是"**创作者本人对这份内容**的授权"。
- * 传文件是这件事,写标题也是这件事 —— 同一个 `contentId`、同一个 `uploader`。
+ * 判据是"这条签名管的是不是同一件事":`Upload` 这条授权的含义就是
+ * "**创作者本人对这份内容**的授权"(它钉死了 `contentId` 与 `uploader`,
+ * 见 `shared/upload.ts`)。传文件是这件事,写标题也是这件事。
  * 再弹一次钱包只为改一个标题,是拿一次真实的打扰换零新增的安全。
+ *
+ * ⚠️ 2026-09-25:`targets` 变成数组之后,服务端对这条端点的要求是
+ * "**授权里必须含 `content`**"(不要求"只能有 content")——
+ * 所以发布时那条 `['content','preview']` 的授权可以直接拿来写标题。
  *
  * ## ⚠️ 但它的 `deadline` 是**第 1 步**签的(5 分钟),所以可能已经过期
  *
@@ -200,13 +204,23 @@ export async function publishContentTitle(args: {
  */
 export async function authorizeUpload(args: {
   contentId: Hex
-  target: UploadTarget
+  /**
+   * 允许落到哪几个 store。
+   *
+   * ⚠️ **传几个就有几次授权,一次弹窗** —— 2026-09-25 起这里是数组,
+   * 发布时传 `['content','preview']`,所以钱包只弹一次而不是两次
+   * (理由与代价见 `shared/upload.ts` 的同名段落)。
+   *
+   * ⚠️ **顺序即签名的一部分**:同一个集合换个顺序签出来的签名不一样,
+   * 服务端逐元素比对,所以调用方给的顺序会被原样签进去。
+   */
+  targets: readonly UploadTarget[]
   uploader: Address
   signTypedData: (data: ReturnType<typeof uploadTypedData>) => Promise<Hex>
 }): Promise<UploadAuthWire> {
   const message: UploadMessage = {
     contentId: args.contentId,
-    target: args.target,
+    targets: args.targets,
     uploader: args.uploader,
     deadline: nextUploadDeadline(),
   }
@@ -230,7 +244,12 @@ export async function authorizeUpload(args: {
  * 单次 PUT 对 200 MiB 以内的文件是够的 —— 那正是 `MAX_UPLOAD_BYTES` 的上限。
  */
 export async function directUpload(args: {
-  file: File
+  /**
+   * ⚠️ 是 `Blob` 不是 `File` —— 预览图那条走的是 `canvas.toBlob()` 出来的
+   * `Blob`(它没有文件名,也不在用户磁盘上)。`File` 是 `Blob` 的子类,
+   * 所以内容文件那条路原样传进来没问题。
+   */
+  file: Blob
   target: UploadTarget
   pathname: string
   wire: UploadAuthWire
@@ -244,7 +263,10 @@ export async function directUpload(args: {
       handleUploadUrl: '/api/upload',
       clientPayload: encodeUploadClientPayload(args.wire),
       // 显式带上,不让 SDK 从扩展名猜 —— 一个没有扩展名的文件会被猜成
-      // `application/octet-stream`,买家下载下来打不开
+      // `application/octet-stream`,买家下载下来打不开。
+      // 预览图没有扩展名(pathname 是 `preview/<contentId>`),所以这一条
+      // 对它是**唯一**的内容类型来源:不传就等于整个公开 CDN 上那张图
+      // 都是 `application/octet-stream`,`<img>` 直接不显示
       contentType: args.file.type || 'application/octet-stream',
       onUploadProgress: args.onProgress
         ? (p) => args.onProgress!(p.percentage)

@@ -43,7 +43,7 @@ export const SERVER_ENV = [
      * 改名 = 线上那份失效,而且失效方式是`undefined`(静默,不报错)。
      */
     name: 'PUBLIC__READ_WRITE_TOKEN',
-    when: 'W5 · 公开 store(预览图,CDN 直出)。名字见上方注释,**别改**',
+    when: 'W5 · 公开 store(预览图,CDN 直出)。名字见上方注释,别改',
     required: true,
   },
   {

@@ -514,9 +514,9 @@ async function main() {
     record(
       '第 ①~④ 条:需要一笔真实付款',
       'skip',
-      `**验不了,不是没这回事。** 服务端自己回了 503 ${live.code} ——\n` +
+      `验不了,不是没这回事 —— 服务端自己回了 503 ${live.code}:\n` +
         `     KV(或 RPC)不通。第 ④ 条靠 KV 记"这笔用掉了没有",KV 不通就没法验。\n` +
-        `     ⚠️ 链上那笔付款是**在**的(脚本扫到了 ${live.txHash.slice(0, 18)}…),别去重买。\n` +
+        `     ⚠️ 链上那笔付款是在的(脚本扫到了 ${live.txHash.slice(0, 18)}…),别去重买。\n` +
         `     本机的典型原因:\`*.upstash.io\` 偶尔整段不通 —— 见 W7 实施计划 §6.3.3。`,
     )
     report()
@@ -528,9 +528,9 @@ async function main() {
       '第 ①~④ 条:需要一笔真实付款',
       'skip',
       live.candidates === 0
-        ? `${PAYER.slice(0, 10)}… 在**在架**内容上没有付款记录。再买一件就有了。`
-        : `扫到 ${live.candidates} 笔,但全被兑过了(KV 里的记录**没有 TTL**,永久)。\n` +
-            `     ⚠️ 别再拿它们试 —— 拿旧 txHash 只会得到 409,测不出别的东西。**再买一件。**`,
+        ? `${PAYER.slice(0, 10)}… 在在架内容上没有付款记录。再买一件就有了。`
+        : `扫到 ${live.candidates} 笔,但全被兑过了(KV 里的记录没有 TTL,永久)。\n` +
+            `     ⚠️ 别再拿它们试 —— 拿旧 txHash 只会得到 409,测不出别的东西。再买一件。`,
     )
     report()
     return
@@ -621,7 +621,7 @@ async function main() {
       '第 ⑦ 条:410 quote_expired',
       'skip',
       '需要 QUOTE_HMAC_SECRET 自签一份过期报价。它只在本机(vercel dev 的 Development 环境)有。\n' +
-        '     ⚠️ 生产上这条**验不了**:要走到第 ⑤ 条必须通过前面的 ④,而 ④ 之后不可能再拿同一笔交易重来。',
+        '     ⚠️ 生产上这条验不了:要走到第 ⑤ 条必须通过前面的 ④,而 ④ 之后不可能再拿同一笔交易重来。',
     )
   }
 
@@ -647,7 +647,7 @@ async function main() {
     record(
       '第 ① / ④ 条:200 happy path 与 409 payment_replayed',
       'skip',
-      '它们会把这笔付款消耗掉(KV 里的记录**没有 TTL**,永久)。加 --burn 才跑。\n' +
+      '它们会把这笔付款消耗掉(KV 里的记录没有 TTL,永久)。加 --burn 才跑。\n' +
         '     ⚠️ 跑之前想清楚:跑完这笔付款就再也兑不了了,得再买一件。',
     )
     report()
@@ -686,7 +686,7 @@ function report() {
   console.log(`${'─'.repeat(72)}`)
   console.log(`通过 ${pass} · 失败 ${fail} · 跳过 ${skip}`)
   if (skip) {
-    console.log('⚠️ 跳过**不等于**通过 —— 上面每一条跳过的都写了为什么。')
+    console.log('⚠️ 跳过不等于通过 —— 上面每一条跳过的都写了为什么。')
   }
   process.exitCode = fail ? 1 : 0
 }

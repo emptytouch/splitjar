@@ -3,6 +3,7 @@ import { isAddress, type Hex } from 'viem'
 import { useAccount } from 'wagmi'
 import { Card, PageHeader } from '../components/Shell'
 import { FilePick } from '../components/FilePick'
+import { PreviewPanel } from '../components/PreviewPanel'
 import { ShareQr } from '../components/ShareQr'
 import { ConnectButton } from '../components/ConnectButton'
 import { CHAIN } from '../../shared/chain'
@@ -344,7 +345,7 @@ export function CreatePage() {
       <div className="grid gap-5 lg:grid-cols-5">
         <Card
           title="内容与定价"
-          hint={`标题 / 价格 / 分账(最多 ${MAX_RECIPIENTS} 方)。内容文件会一起上传,指纹上链;预览图还没做。`}
+          hint={`标题 / 价格 / 分账(最多 ${MAX_RECIPIENTS} 方)。内容文件会一起上传,指纹上链;预览图在你的浏览器里从文件派生。`}
           className="lg:col-span-3"
         >
           <div className="space-y-5">
@@ -363,6 +364,15 @@ export function CreatePage() {
               disabled={busy}
               onPick={(f) => void pickFile(f)}
             />
+
+            {/*
+              预览图紧跟在文件下面 —— 它**派生自**上面那个文件,
+              放到右栏(「这会生成什么」是付费页的分账明细)会让"这张图
+              从哪来的"变得看不出来。
+              ⚠️ 传的是 `draftOf(state)?.preview`,所以它和文件、指纹
+              是同一批落地的:换文件时三样一起换,不会出现图和文件对不上
+            */}
+            <PreviewPanel derivation={draftOf(publishState)?.preview ?? null} />
 
             <div>
               <label className={LABEL} htmlFor="title">
@@ -783,7 +793,7 @@ function FailedPanel({
           {showSkip ? (
             <div className="space-y-2">
               <p className="text-[11px] leading-relaxed text-amber-200/90">
-                ⚠️ 只有在你**亲眼看到进度条走完了**、之后才断的情况下才选这个。
+                ⚠️ 只有当你确实看到进度条走完了、之后才断的情况下,才选这个。
                 选错了会创建出一条没有文件的内容 —— 买家付了钱下载不到东西。
               </p>
               <button

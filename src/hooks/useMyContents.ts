@@ -1,10 +1,13 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { Address, Hex } from 'viem'
 import { useAccount, usePublicClient } from 'wagmi'
 import { DEPLOY_BLOCK } from '../../shared/chain'
 import { SPLITTER_ADDRESS, creatorSplitterAbi } from '../lib/splitter'
-import { listRememberedContents } from '../lib/contentMeta'
+import { listRememberedContents, resolveTitle, type RowTitle } from '../lib/contentMeta'
+import { useCatalog } from './useCatalog'
 import { deriveActiveState, isActive } from '../../shared/contentActive'
+import { ZERO_CONTENT_HASH } from '../../shared/contentHash'
 import { inWindows } from '../../shared/blockWindows'
 import { isAgentAddress } from '../../shared/agentAddresses'
 
@@ -44,7 +47,25 @@ import { isAgentAddress } from '../../shared/agentAddresses'
  *
  * `ContentRegistered` 里有 `indexed creator`,直接按 `args.creator` 过滤 ——
  * 这是链上的事实,不依赖本地记录。
- * **标题**是另一回事:合约不存标题,只能从本机缓存取(见 lib/contentMeta.ts)。
+ * **标题**是另一回事:合约不存标题,见下。
+ *
+ * ## ⚠️ 2026-09-26:标题改成读服务端 KV,而且它**不能住在 `queryFn` 里**
+ *
+ * 原先标题只从本机 localStorage 取,于是同一件内容**广场显示「苹果图」、
+ * 看板显示「未命名内容」**(在**没发布过它的那台机器**上必然如此)。
+ * 现在服务端那份 KV 是主源,localStorage 退成兜底 —— 规则都在
+ * `lib/contentMeta.ts` 的 `resolveTitle` 里,**这里只负责把数据喂给它**。
+ *
+ * ⚠️ **合并必须发生在 `queryFn` 外面**(下面那个 `useMemo`),理由是硬的:
+ * 链上那份查询的 `queryKey` 只跟地址有关,它的 `queryFn` **不会**因为
+ * catalog 后到而重跑。如果标题在 `queryFn` 里算,函数闭包捕获的是
+ * "catalog 还没到"那一版的 `serverTitles` —— 于是**那一行会永远停在
+ * 旧的标题上**,而且症状是"有时候标题是对的、有时候不是"(取决于哪个请求快)。
+ *
+ * 所以分工是:① `queryFn` 只产**链上事实**(`ChainRow`,没有标题);
+ * ② catalog 那份到了之后,`useMemo` 把两个来源合起来。
+ * 多一次网络读(react-query 自己去重,`/dashboard` 与 `/` 共享同一份),
+ * 换的是"两个界面说的是同一句话"。
  *
  * ## 上下架状态也是从事件推的,不额外读链
  *
@@ -80,21 +101,65 @@ export type Sale = {
   isAgent: boolean
 }
 
+/**
+ * 查询产出的那一行 —— **还没有标题**(只有链上事实)。
+ *
+ * 标题那两个来源(服务端 KV / 本机)都要在**合起来**之后才算数,
+ * 而合并发生在 `useMyContents` 的 `useMemo` 里(理由见文件头 2026-09-26 那段)。
+ * 拆成两个类型是为了让"忘了合并"变成**编译错误** —— 直接渲染 `ChainRow.title`
+ * 是取不到字段的。
+ */
+type ChainRow = Omit<ContentRow, 'title'>
+
+/**
+ * `queryFn` 的产出 —— **只有链上事实**。
+ *
+ * ⚠️ 页面**不要**用这个:它的 `rows` 没有标题。渲染请用 `useMyContents()`
+ * 返回的 `rows`(合过 KV 与本机两个来源)。类型上刻意让两者不同,
+ * 就是为了让"绕开合并"编译不过。
+ */
+export type MyContents = {
+  rows: ChainRow[]
+  times: Map<string, Date>
+}
+
 export type ContentRow = {
   contentId: Hex
   price: bigint
   txHash: Hex
   blockNumber: bigint
-  title: string
+  /**
+   * 标题 —— **四态,不是字符串**,理由见 `lib/contentMeta.ts` 的 `RowTitle`。
+   *
+   * ⚠️ 渲染时不要写 `r.title || '未命名内容'`:那会把"标不出来"和
+   * "确实没有"压成同一句话,而后者是在**断言一件我们可能并不知道的事**。
+   */
+  title: RowTitle
   sales: Sale[]
   earned: bigint
   /** 链上当前是否在售 —— 由 `ContentActiveChanged` 推导,默认 `true` */
   active: boolean
-}
-
-export type MyContents = {
-  rows: ContentRow[]
-  times: Map<string, Date>
+  /**
+   * 链上记的那份**内容文件的 keccak256**。
+   *
+   * 看板的「补预览图」用它回答一个问题:**你刚选的这个文件,是不是这一份内容?**
+   * 预览图是从内容文件派生出来的,而内容字节在私有 store 里(浏览器匿名读不到,
+   * 这正是我们要的效果)—— 所以补图时创作者得**在本机重新选一次原文件**。
+   * 选错文件不是靠信任去防的:算一遍 keccak256 和链上这个值比,
+   * 对不上就拒。传一张别的图上去比没有图更糟。
+   *
+   * ## 为什么是零额外 RPC
+   *
+   * `ContentRegistered` 事件里**自带** `contentHash`(已从 ABI 核实),
+   * 所以它跟着已经扫到的那条日志一起进来,不需要为每一行再打一次 `getContent`。
+   *
+   * ## ⚠️ 它可能是 `0x00…00`
+   *
+   * W5 之前创建的内容传的是占位符 `0x0`(那时上传还没做,见
+   * `lib/uploadApi.ts` 的 `computeFileHash` 注释)。那种内容**没法核对**
+   * —— 判定与出路在 `isVerifiableHash`,别在这里特判。
+   */
+  contentHash: Hex
 }
 
 /**
@@ -121,9 +186,31 @@ async function blockTimes(
   return out
 }
 
-export function useMyContents() {
+/**
+ * 这个 hook 对外给的东西 —— **刻意比 react-query 那个结果窄**。
+ *
+ * `query.data.rows` 是**没有标题**的 `ChainRow`,把它透出去就等于留了一条
+ * "某个页面绕开合并、自己渲染一遍"的路,而那条路的症状正是这次要修的那个 bug。
+ * 所以这里只暴露合完的结果;要加字段就加在这里,顺便想清楚它归哪一层。
+ */
+export type MyContentsResult = {
+  rows: ContentRow[]
+  times: Map<string, Date>
+  isLoading: boolean
+  isError: boolean
+  isFetching: boolean
+  refetch: () => void
+}
+
+export function useMyContents(): MyContentsResult {
   const { address } = useAccount()
   const client = usePublicClient()
+
+  /**
+   * 服务端那份标题表。⚠️ 用 `useCatalog` 而不是自己 fetch ——
+   * 它是**同一个 queryKey**,`/explore` 和这一页共享一份缓存,不会多打一次。
+   */
+  const catalog = useCatalog()
 
   const query = useQuery({
     queryKey: ['my-contents', SPLITTER_ADDRESS, address],
@@ -148,7 +235,10 @@ export function useMyContents() {
         }),
       )
 
-      const mine = new Map<Hex, { price: bigint; txHash: Hex; blockNumber: bigint }>()
+      const mine = new Map<
+        Hex,
+        { price: bigint; txHash: Hex; blockNumber: bigint; contentHash: Hex }
+      >()
       for (const log of registered) {
         const id = log.args.contentId
         if (!id) continue
@@ -156,6 +246,10 @@ export function useMyContents() {
           price: log.args.price ?? 0n,
           txHash: log.transactionHash!,
           blockNumber: log.blockNumber!,
+          // 事件自带,零额外 RPC。补成零值而不是留空:这个字段的类型是 `Hex`,
+          // 而"核对了不了"在链上的表达就是零值 —— 能不能核对由
+          // `isVerifiableHash` 判,不在这一层造第三态(见 shared/contentHash.ts)
+          contentHash: log.args.contentHash ?? ZERO_CONTENT_HASH,
         })
       }
 
@@ -205,8 +299,7 @@ export function useMyContents() {
           })),
       )
 
-      const rows: ContentRow[] = []
-      const remembered = new Map(listRememberedContents().map((r) => [r.contentId, r.title]))
+      const rows: ChainRow[] = []
 
       for (const [contentId, meta] of mine) {
         const sales: Sale[] = []
@@ -260,11 +353,11 @@ export function useMyContents() {
           price: meta.price,
           txHash: meta.txHash,
           blockNumber: meta.blockNumber,
-          title: remembered.get(contentId) ?? '',
           sales,
           earned: sales.reduce((a, s) => a + s.myShare, 0n),
           // 没改过就是注册时的初始值 `true`(合约 CreatorSplitter.sol:172)
           active: isActive(activeOf, contentId),
+          contentHash: meta.contentHash,
         })
       }
 
@@ -277,5 +370,58 @@ export function useMyContents() {
     },
   })
 
-  return query
+  /**
+   * 服务端那份标题表。`null` = **拿不到**(还没到 / 读失败)—— 与
+   * "服务端说这件内容没有标题"是两回事,判据见 `resolveTitle`。
+   *
+   * 键统一**小写**:contentId 在链上、在 KV、在这份表里的形态不保证一致,
+   * 少一次归一化就是"明明有、却查不到"。
+   */
+  const serverTitles = useMemo(() => {
+    if (!catalog.data) return null
+    return new Map(catalog.data.items.map((i) => [i.contentId.toLowerCase(), i.title]))
+  }, [catalog.data])
+
+  /**
+   * 本机那份。⚠️ 读 localStorage 放在 `useMemo` 里而不是 `queryFn` 里:
+   * 一来 `queryFn` 已经不该碰标题了,二来这样它和 catalog 是同一个时机,
+   * 两边的取舍一样(不跟着链上那次扫描反复重读)。
+   */
+  const localTitles = useMemo(
+    () => new Map(listRememberedContents().map((r) => [r.contentId.toLowerCase(), r.title])),
+    [],
+  )
+
+  const rows = useMemo<ContentRow[]>(
+    () =>
+      (query.data?.rows ?? []).map((r) => ({
+        ...r,
+        title: resolveTitle({
+          contentId: r.contentId,
+          serverTitles,
+          // ⚠️ catalog **没有 data 且还在加载**才是 pending。`isError` 时
+          // `isPending` 也是假 —— 那一路要落到 `unknown` 上,不能混
+          serverPending: catalog.isPending,
+          localTitles,
+        }),
+      })),
+    [query.data, serverTitles, catalog.isPending, localTitles],
+  )
+
+  return {
+    rows,
+    times: query.data?.times ?? EMPTY_TIMES,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+  }
 }
+
+/**
+ * 空表常量。
+ *
+ * ⚠️ 每次渲染现造一个 `new Map()` 会让下游的 `useMemo`/依赖比较每次都判"变了" ——
+ * 数据还没到时这个值会被读很多次,没必要每次都造一个新的。
+ */
+const EMPTY_TIMES: Map<string, Date> = new Map()
