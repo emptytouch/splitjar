@@ -49,7 +49,7 @@ export type SearchIntent = {
 
 /** 为什么会降级。**只用于服务端日志/排查,前端不许按它分支**(见下) */
 export type DegradeReason =
-  /** 服务端没配 `ANTHROPIC_API_KEY` */
+  /** 服务端没配 `INTENT_LLM_API_KEY` */
   | 'not_configured'
   /** 调不通:网络、超时、非 200 */
   | 'llm_unavailable'

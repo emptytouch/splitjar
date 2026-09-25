@@ -85,7 +85,7 @@ export const SERVER_ENV = [
     /**
      * ⚠️ **`required: false` 是刻意的,别"顺手"改成 true。**
      *
-     * W14 包 A 的意图解析(`POST /api/parse-intent`)用它调 Anthropic。
+     * W14 包 A 的意图解析(`POST /api/parse-intent`)用它调模型。
      * 计划 §3.2 要求**没有它系统必须照常可用** —— 没配 key 时那条端点回
      * `{kind:'degraded'}`,界面退化成手动筛选框。
      * 一旦标成 `required`, `serverEnvReady()` 会变 false,等于在说
@@ -93,9 +93,15 @@ export const SERVER_ENV = [
      *
      * 它也是本仓库**第一条会按次花钱**的服务端凭证:那条端点没有限流,
      * 前因后果见 `api/parse-intent.ts` 文件头。
+     *
+     * ⚠️ **这个名字是"中立的"(`INTENT_LLM_` 而不是某家厂商),这是刻意的。**
+     * 原名叫 `ANTHROPIC_API_KEY`,2026-09-26 改用智谱 GLM 时改成了现在这个
+     * (计划 §9.4)。改名的代价不对称:名字里带厂商 ⇒ **每换一次服务商,
+     * Vercel 上那个变量就得删了重加、再重新部署一遍**;中立名字则永远不用动。
+     * 而"用哪家"是会变的,"这里放的是那条端点的模型密钥"不会变。
      */
-    name: 'ANTHROPIC_API_KEY',
-    when: 'W14 · /explore 的一句话解析。⚠️ 可缺:缺了就降级成手动筛选',
+    name: 'INTENT_LLM_API_KEY',
+    when: 'W14 · /explore 的一句话解析(智谱 GLM)。⚠️ 可缺:缺了就降级成手动筛选',
     required: false,
   },
 ] as const

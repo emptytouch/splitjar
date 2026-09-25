@@ -281,7 +281,10 @@ const OUTCOME_LABEL: Record<Turn['outcome']['kind'], string> = {
 
 const OUTCOME_TEXT: Record<DegradeReason | 'failed', string> = {
   not_configured:
-    '服务端没有配置模型密钥(ANTHROPIC_API_KEY),这个入口现在用不了 —— 所以上面那个问句框已经收起来了,再问一次也一样。下面那几个筛选项照样能用。',
+    // ⚠️ 这里写的是**服务端那个环境变量的名字**。2026-09-26 换模型厂商时
+    // 从 `ANTHROPIC_API_KEY` 改成 `INTENT_LLM_API_KEY` —— 这个名字必须跟着
+    // `server/env.ts` 的登记表走,否则这句会指着一个不存在的变量让运维去配。
+    '服务端没有配置模型密钥(INTENT_LLM_API_KEY),这个入口现在用不了 —— 所以上面那个问句框已经收起来了,再问一次也一样。下面那几个筛选项照样能用。',
   llm_unavailable: '模型这次没答应(超时或出错了)。可以再试一次;也可以直接在下面手动筛。',
   unparseable: '模型答了,但没给出能用的条件。再试一次通常就好;也可以直接在下面手动筛。',
   failed: '没能问上 —— 网络或服务端没应答。可以再试一次;也可以直接在下面手动筛。',

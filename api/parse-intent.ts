@@ -27,7 +27,7 @@ import { serverEnv } from '../server/env.js'
  *
  * ## ⚠️⚠️ 已知缺口:这条端点**没有限流**,而它每次调用都要花钱
  *
- * 如实记(不掩盖):这是一条公开端点,每个请求都会打一次 Anthropic API。
+ * 如实记(不掩盖):这是一条公开端点,每个请求都会打一次模型 API(智谱 GLM)。
  * 仓库里**没有**现成的限流件 —— `server/kv.ts:139` 那句注释写明"真正要限流
  * 得靠 W6 的限额三件套",而那三件套没有建。
  *
@@ -79,7 +79,7 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(400, 'bad_request', `query 最长 ${MAX_QUERY_LENGTH} 个字`)
   }
 
-  const apiKey = serverEnv('ANTHROPIC_API_KEY')
+  const apiKey = serverEnv('INTENT_LLM_API_KEY')
   if (!apiKey) {
     // 没配 key ⇒ 降级。**不是错误**:计划 §3.2 要求"没有它系统必须照常可用"
     // (所以它在 `server/env.ts` 里是 `required: false`)
@@ -88,7 +88,7 @@ export async function POST(request: Request): Promise<Response> {
 
   let payload: unknown
   try {
-    const res = await fetch(ANTHROPIC_MESSAGES_URL, {
+    const res = await fetch(INTENT_MESSAGES_URL, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -148,15 +148,47 @@ export function GET(): Response {
 /**
  * 模型名 —— 写死在这里,**不做成环境变量**。
  *
- * 它是"当时定下来的一个决定"(计划 §九:够快够便宜,解析这种活不需要更贵的),
- * 不是部署差异。做成环境变量只会多一个能配错、还不报错的地方。
+ * 它是"当时定下来的一个决定",不是部署差异。做成环境变量只会多一个能配错、
+ * 还不报错的地方。
+ *
+ * ⚠️ **注意这个不对称是有意的**:密钥走环境变量(`INTENT_LLM_API_KEY`),
+ * 而模型名写死在代码里。理由是两者变动的**时机**不同 —— 密钥是"每套部署
+ * 各自一份",必须能配;模型是"我们要它用哪个",改它应该是一次**被 review 的
+ * 代码改动**,而不是某天有人在控制台里打错一个字,然后所有解析悄悄变差。
  */
-const INTENT_MODEL = 'claude-sonnet-5'
+const INTENT_MODEL = 'glm-5.3'
 
 /** ⚠️ 6 秒的**理由**见文件头 —— 它必须比平台默认的函数上限先到 */
 const LLM_TIMEOUT_MS = 6_000
 
-const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+/**
+ * ⚠️⚠️ **这是智谱的 Anthropic *兼容* 端点,不是 Anthropic 的端点。**
+ *
+ * ```
+ * https://open.bigmodel.cn/api/anthropic/v1/messages
+ * ```
+ *
+ * 2026-09-26 从 `https://api.anthropic.com/v1/messages` 换过来(计划 §9.4)。
+ * 换它的**理由**是这一跳只做四字段抽取,而输入是中文;智谱的 key 也更好拿。
+ *
+ * ⭐ **整个文件里只有这两个常量 + 上面那个模型名是"厂商相关"的** ——
+ * 请求头(`x-api-key` / `anthropic-version`)、请求体的字段名、以及
+ * `readToolInput` 从 `content` 数组里取块的写法,兼容端点全都认,
+ * **一行都没改**。这就是当初选"兼容端点"而不是"换成另一家的原生协议"的意义:
+ * 真要换的只有地址和型号。
+ *
+ * ⚠️ **换过来之后有一件事必须实测,不能靠推断**:`tool_choice: {type:'tool'}`
+ * 这种**强制**工具调用,是兼容层最容易打折的地方。若它不生效,症状是模型
+ * 回一段文本而 `content` 里没有 `tool_use` 块 ⇒ `readToolInput` 返回 `null`
+ * ⇒ 回 `unparseable` ⇒ **前端降级成手动筛选**。**失败方式是降级,不是崩**,
+ * 所以试错成本很低 —— 但这不等于"验过了"。
+ */
+const INTENT_MESSAGES_URL = 'https://open.bigmodel.cn/api/anthropic/v1/messages'
+
+/**
+ * ⚠️ 名字保留 `ANTHROPIC_` 前缀,因为**那个 HTTP 头就叫 `anthropic-version`** ——
+ * 它描述的是**线上协议**,不是厂商。兼容端点也认这个值。
+ */
 const ANTHROPIC_VERSION = '2023-06-01'
 
 /**
