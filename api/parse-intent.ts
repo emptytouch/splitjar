@@ -27,7 +27,7 @@ import { serverEnv } from '../server/env.js'
  *
  * ## ⚠️⚠️ 已知缺口:这条端点**没有限流**,而它每次调用都要花钱
  *
- * 如实记(不掩盖):这是一条公开端点,每个请求都会打一次模型 API(智谱 GLM)。
+ * 如实记(不掩盖):这是一条公开端点,每个请求都会打一次模型 API(硅基流动 GLM)。
  * 仓库里**没有**现成的限流件 —— `server/kv.ts:139` 那句注释写明"真正要限流
  * 得靠 W6 的限额三件套",而那三件套没有建。
  *
@@ -43,12 +43,21 @@ import { serverEnv } from '../server/env.js'
  * 端点**,部署到公开环境前该给它配限流(按 IP 的 KV 计数就够,十几行)。
  * 这条缺口记在 `docs/W14-实施计划.md` §9.2,不在本次范围内。
  *
- * ## 为什么超时是 6 秒(而不是更久)
+ * ## ⚠️ 超时:6 秒 → 20 秒(2026-09-26 改的,这是**实测逼出来**的)
  *
- * `vercel.json` 里没有 `functions.maxDuration`,所以函数吃平台的**默认上限**
- * (10s 这一档)。超时必须**先于**平台把函数杀掉 —— 否则用户看到的是一个
- * 504,而**降级路径根本来不及跑**,§3.4 那条「拔掉 key ⇒ 退化成搜索框」
- * 会在"模型慢"这一支上失效。6s 留出了足够余量。
+ * 原则没变:超时必须**先于**平台把函数杀掉 —— 否则用户看到的是一个 504,
+ * 而**降级路径根本来不及跑**,§3.4 那条「拔掉 key ⇒ 退化成搜索框」
+ * 会在"模型慢"这一支上失效。
+ *
+ * **变的是那个"平台上限"。** 原来 `vercel.json` 里没有 `functions.maxDuration`,
+ * 函数吃平台默认的 10 秒档,所以只能给 6 秒。换到硅基流动之后实测发现:
+ * 带 thinking 的模型这一跳要 **8.5~30 秒**,6 秒几乎必然超时 ——
+ * 症状不是报错,是**功能看起来时灵时不灵**(长问句降级、短问句偶尔成功)。
+ *
+ * 所以两件事一起改:`vercel.json` 给这个函数配 `maxDuration: 30`,
+ * 这里把超时提到 20 秒,留 10 秒给降级路径。这个余量是**必需**的,不是慷慨。
+ *
+ * ⚠️ **改这两个值时它们必须一起看** —— 超时 ≥ maxDuration 等于降级路径被删掉。
  */
 /**
  * ⚠️ **具名 `POST`,不是 `export default`。**
@@ -155,21 +164,47 @@ export function GET(): Response {
  * 而模型名写死在代码里。理由是两者变动的**时机**不同 —— 密钥是"每套部署
  * 各自一份",必须能配;模型是"我们要它用哪个",改它应该是一次**被 review 的
  * 代码改动**,而不是某天有人在控制台里打错一个字,然后所有解析悄悄变差。
+ *
+ * ## 为什么是这个模型(2026-09-26 实测 8 个之后定的)
+ *
+ * 判据是**纪律**,不是延迟:这个功能的全部价值在于「用户没说的就别填」。
+ * 测法见 `../shot/smoke-intent-llm.mjs`,六条纪律用例(含「看看有什么」这种
+ * 应当四字段全空的)。结果:
+ *
+ * | 模型 | 结果 |
+ * |---|---|
+ * | **`deepseek-ai/DeepSeek-V4-Flash`** | ✅ **6/6 全对,零编造**,延迟 0.9~3.4s(偶发 26s) |
+ * | `inclusionAI/Ling-mini-2.0` | ❌ 延迟极稳(0.5~0.9s)但**会丢关键词**:「关于苹果的」那条丢了「苹果」,还会凭空填 `limit`。同一句两次结果不一致 |
+ * | `zai-org/GLM-5.3` | ✅ 准,但 8.5~30s —— 这是把超时从 6s 提到 20s 的直接原因 |
+ * | `zai-org/GLM-4.5-Air` | ❌ 把整个工具调用当**文本**吐在 `_broken` 字段里(就是 Cherry Studio #13244 报的那个兼容层 bug) |
+ * | `stepfun-ai/Step-3.5-Flash` | ❌ 只回 thinking,没有 `tool_use` 块 |
+ *
+ * ⚠️ **选它不是因为快,是因为准。** 它的延迟方差比 Ling-mini 大得多,
+ * 但一个「快而偶尔漏掉关键词」的解析器会让用户以为目录里没有那件东西 ——
+ * 那比"慢一点"坏得多。
  */
-const INTENT_MODEL = 'glm-5.3'
-
-/** ⚠️ 6 秒的**理由**见文件头 —— 它必须比平台默认的函数上限先到 */
-const LLM_TIMEOUT_MS = 6_000
+const INTENT_MODEL = 'deepseek-ai/DeepSeek-V4-Flash'
 
 /**
- * ⚠️⚠️ **这是智谱的 Anthropic *兼容* 端点,不是 Anthropic 的端点。**
+ * 上游超时。**这个值 2026-09-26 从 6 秒改成了 20 秒**(理由见文件头那一节)。
+ *
+ * ⚠️ 它必须**短于** `vercel.json` 里给这个函数配的 `maxDuration`(30s)。
+ * 现在留了 10 秒余量给降级路径 —— 这个余量是**必需**的,不是慷慨:
+ * 超时要先到,函数才有时间回一个体面的 `degraded` 而不是被平台直接杀掉
+ * (那样用户看到的是 504,而降级根本没跑)。
+ */
+const LLM_TIMEOUT_MS = 20_000
+
+/**
+ * ⚠️⚠️ **这是硅基流动的 Anthropic *兼容* 端点,不是 Anthropic 的端点。**
  *
  * ```
- * https://open.bigmodel.cn/api/anthropic/v1/messages
+ * https://api.siliconflow.cn/v1/messages
  * ```
  *
- * 2026-09-26 从 `https://api.anthropic.com/v1/messages` 换过来(计划 §9.4)。
- * 换它的**理由**是这一跳只做四字段抽取,而输入是中文;智谱的 key 也更好拿。
+ * 2026-09-26 从 `https://api.anthropic.com/v1/messages` 换到智谱、当天又换到
+ * 硅基流动(计划 §9.4 / §9.5)。换第二家的**理由**是智谱账户余额不足
+ * (`[1113]`),而这一跳只做四字段抽取,谁家便宜/免费就用谁。
  *
  * ⭐ **整个文件里只有这两个常量 + 上面那个模型名是"厂商相关"的** ——
  * 请求头(`x-api-key` / `anthropic-version`)、请求体的字段名、以及
@@ -177,13 +212,29 @@ const LLM_TIMEOUT_MS = 6_000
  * **一行都没改**。这就是当初选"兼容端点"而不是"换成另一家的原生协议"的意义:
  * 真要换的只有地址和型号。
  *
- * ⚠️ **换过来之后有一件事必须实测,不能靠推断**:`tool_choice: {type:'tool'}`
- * 这种**强制**工具调用,是兼容层最容易打折的地方。若它不生效,症状是模型
- * 回一段文本而 `content` 里没有 `tool_use` 块 ⇒ `readToolInput` 返回 `null`
- * ⇒ 回 `unparseable` ⇒ **前端降级成手动筛选**。**失败方式是降级,不是崩**,
- * 所以试错成本很低 —— 但这不等于"验过了"。
+ * ⚠️ **变量名 `INTENT_LLM_API_KEY` 这次一个字都没改** —— 当初去掉厂商名
+ * 那个决定在这里回本了:换厂商不用动 Vercel 上的变量名,也不用动
+ * `server/env.ts`、`.env.example`、以及 `IntentSearch.tsx` 里写死的那串文案。
+ *
+ * ## ⭐ 2026-09-26 实测:`tool_choice` **生效**(这条此前一直是悬案)
+ *
+ * 智谱那次止步于余额,所以"强制工具调用到底生不生效"从来没被验过。
+ * 换成硅基流动后用 `../shot/smoke-intent-llm.mjs` 实测(原样复刻下面这份请求):
+ *
+ * ```
+ * HTTP=200  content 块 = thinking | tool_use  stop_reason = tool_use
+ * input = {"keyword":"苹果","limit":3,"maxPrice":"0.5"}
+ * ```
+ *
+ * ⚠️ **注意第一个块是 `thinking`,`tool_use` 在第二位。** 这家的兼容层会稳定地
+ * 先吐一个 thinking 块 —— 所以 `readToolInput` 那条「**认 `type`,不认位置**」
+ * 的纪律在这家是**硬需求**,不是风格偏好。写成 `content[0].input` 会直接烂掉。
+ *
+ * 若将来它真的失效,症状是模型回一段文本而 `content` 里没有 `tool_use` 块
+ * ⇒ `readToolInput` 返回 `null` ⇒ 回 `unparseable` ⇒ **前端降级成手动筛选**。
+ * **失败方式是降级,不是崩。**
  */
-const INTENT_MESSAGES_URL = 'https://open.bigmodel.cn/api/anthropic/v1/messages'
+const INTENT_MESSAGES_URL = 'https://api.siliconflow.cn/v1/messages'
 
 /**
  * ⚠️ 名字保留 `ANTHROPIC_` 前缀,因为**那个 HTTP 头就叫 `anthropic-version`** ——

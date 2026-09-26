@@ -99,9 +99,13 @@ export const SERVER_ENV = [
      * (计划 §9.4)。改名的代价不对称:名字里带厂商 ⇒ **每换一次服务商,
      * Vercel 上那个变量就得删了重加、再重新部署一遍**;中立名字则永远不用动。
      * 而"用哪家"是会变的,"这里放的是那条端点的模型密钥"不会变。
+     *
+     * ⭐ **这个决定当天就回本了**:同日从智谱换到硅基流动(§9.5),
+     * 变量名一个字没改 —— 所以 `server/env.ts`、`.env.example`、
+     * 以及 `IntentSearch.tsx` 里写死的那串文案,全都不用跟着动。
      */
     name: 'INTENT_LLM_API_KEY',
-    when: 'W14 · /explore 的一句话解析(智谱 GLM)。⚠️ 可缺:缺了就降级成手动筛选',
+    when: 'W14 · /explore 的一句话解析(硅基流动 GLM)。⚠️ 可缺:缺了就降级成手动筛选',
     required: false,
   },
 ] as const
