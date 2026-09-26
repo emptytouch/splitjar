@@ -9,6 +9,22 @@
 
 同一套付费墙同时服务两类买家:**人类**扫码付,**AI Agent** 走 HTTP 402 报价后自助付款。
 
+**线上演示**:https://splitjar.vercel.app(合约在 Avalanche Fuji 测试网)
+
+---
+
+## 页面地图
+
+| 路由 | 谁用 | 干什么 |
+|---|---|---|
+| `/` | 所有人 | 角色分流落地页:创作者 / 买家 / Agent 开发者三栏 |
+| `/console` | 创作者 | 控制台 —— 「发布新内容」的入口、Agent 接入说明 |
+| `/create` | 创作者 | 定价 + N 方分账 + 上传内容,产出付费页链接 |
+| `/explore` | 买家 | 内容广场(在架列表)+ 一句话找内容 |
+| `/p/:id` | 买家 / Agent | 付费页(人类连钱包付;Agent 走 402) |
+| `/purchased` | 买家 | 已购列表、累计花费、每笔下钻 |
+| `/dashboard` | 创作者 | 收款看板:按 `creator` 过滤 `PaymentSplit` 事件直接渲染 |
+
 ---
 
 ## 当前进度
@@ -126,7 +142,38 @@
 > (gas 价、时间簇、地址聚类),全是猜。**如实说边界,好过含糊地说"能识别"。**
 > 完整推演与备选方案见 `docs/W8-实施计划.md` §〇。
 
-尚未开始:体验模式(W6,已推迟)、初筛材料(W10)、打磨(W11)、端到端联调(W9)。
+**W9 端到端联调** —— 已结案(2026-09-25)。
+
+- [x] **§16.1 Agent 七项验收全绿**,逐条实测见 `docs/W9-实施计划.md`:
+      ① catalog 可列(200 · 2 件)② 未付款 → 402 且报价字段完整
+      ③ Agent 全链路无人干预 ④ `txHash` 可在 explorer 当场验证(链上 5 笔)
+      ⑤ 同一个 `txHash` 第二次 → **409** ⑥ 冒用他人 `txHash` → **403 `payment_mismatch`**
+      ⑦ 看板标 `[Agent]` 且**分账比例与人类完全一致**
+
+**W10 初筛材料** —— 进行中(2026-09-27)。
+
+- [x] README 同步到当前进度(本文件)
+- [x] 一页纸 —— `docs/W10-一页纸.md`
+- [ ] **演示视频** —— 分镜与口播稿已就绪:`docs/W10-视频脚本.md`
+
+### 计划外完成(WBS 里没有,但做完了)
+
+| 项 | 说明 |
+|---|---|
+| **`/explore` 内容广场** | 买家视角的在架列表,此前只有创作者控制台 |
+| **W14 意图解析** | `/explore` 顶部「一句话找内容」:自然语言 → 结构化筛选 + 强制降级。LLM 厂商换过两次(Anthropic → 智谱 GLM → 硅基流动),超时 6s → 20s。见 `docs/W14-实施计划.md` |
+| **50k 切窗扫链** | 公共 RPC 普遍有 50k 区块上限,全量扫描改成分窗(`inWindows`) |
+| **预览图链路** | `usePublishFlow` 原先写死 `target:'content'`,预览图走公开 store 后修好 |
+| **看板标题五态** | 链上不存标题,四态 + pending |
+| **角色分流 + 已购页** | `/` 改落地页、`/console` 承接控制台、新增 `/purchased`(2026-09-27) |
+
+**W12 加分项** —— 按计划「只在 W11 全绿后才动」,**合规未动**。
+
+**尚未开始**:体验模式(W6)、应用内领币(W11b)。
+
+> ⚠️ **W6 待拍板。** 它在计划里属**保底层**,但真钱包模式已跑通并经真链验证,
+> 所以「是否砍掉 W6」还没定。砍的话,计划 §1.2 / §12.1 / §13 三节论证**必须改写** ——
+> 不能留没兑现的承诺。W11b 依赖 W6 的限额基建,若 W6 砍掉则改为引导去外部水龙头。
 
 > 完整工作分解见 `docs/开发计划.md`(WBS + 依赖 + 风险)。
 > 产品方案见 `docs/splitjar-product-spec.md`;各工作包的实施记录见 `docs/W3-实施计划.md`
@@ -173,6 +220,12 @@ node scripts/agent-buy.mjs             # 真跑:approve + pay + 取内容 + 比�
 ```
 
 ⚠️ 脚本默认打 `http://127.0.0.1:3000`(本机 API),要**先**把服务端跑起来(见下)。
+打**线上**就换 `BASE_URL`:
+
+```bash
+BASE_URL=https://splitjar.vercel.app node scripts/agent-buy.mjs --dry-run
+```
+
 `--content 0x…` 可以指定买哪一件;不带就由脚本自己从 `/api/catalog` 挑。
 
 前四步(自检 → 发现 → 402 → 报价)不花任何钱,所以 `--dry-run` 之外的参数也可以
@@ -187,7 +240,7 @@ node scripts/agent-buy.mjs             # 真跑:approve + pay + 取内容 + 比�
 **同一个创作者、同一页看板**上,否则"分账比例一致"这句话就没有对照组。
 
 ```
-① 创作者 0xAa05f680…  在 /create 建一件并定价(建议 0.1 USDC)
+① 创作者 0xAa05f680…  在 /console → 发布新内容(→ /create)建一件并定价(建议 0.1 USDC)
                        → 拿到付费页链接
 ② 人类买家 0x737a8a9E… 打开那个链接,连着钱包点付款(approve + pay)
 ③ agent   0x0016486a… node scripts/agent-buy.mjs
@@ -247,7 +300,8 @@ curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
 | 钱包 | Core Wallet 扩展 + WalletConnect |
 | 合约 | Solidity + Foundry(`CreatorSplitter`,**W2 部署**) |
 | 部署 | Vercel(前端 + Functions,免费 `*.vercel.app`) |
-| 存储 | Vercel Blob **私有** + 短时效签名 URL |
+| 存储 | Vercel Blob:内容走**私有** store + 短时效签名 URL;预览图走**公开** store |
+| KV | Upstash Redis:解锁 nonce / 402 防重放租约 / 内容标题 |
 
 ## 目录结构
 
@@ -256,9 +310,12 @@ curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
 │   ├── lib/             #  wagmi 配置、RPC、以及**纯逻辑**:
 │   │                    #    payMachine/payErrors(付款状态机)、claimMachine(领取)、units
 │   ├── hooks/           #  usePayFlow —— 状态机与 wagmi 的接线
-│   ├── components/      #  Shell / ConnectButton / Balances / ChainProbe
-│   │                    #  PayStatus(付款状态机→界面)/ ClaimPending(领取)/ ShareQr
-│   ├── pages/           #  ConsolePage / CreatePage / PayPage / DashboardPage
+│   ├── components/      #  Shell(创作者/买家两套顶栏) / ConnectButton / Balances
+│   │                    #  ChainProbe / PayStatus(付款状态机→界面) / ClaimPending
+│   │                    #  ShareQr / ContentCard / PreviewPanel / PreviewBackfill
+│   │                    #  IntentSearch(W14 一句话找内容) / AgentAccess
+│   ├── pages/           #  LandingPage / ConsolePage / CreatePage / ExplorePage
+│   │                    #  PayPage / DashboardPage / BuyerPage
 │   └── App.tsx
 │
 ├── shared/              ⭐ 前端 + 服务端共用,唯一事实来源
@@ -282,6 +339,8 @@ curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
 │   ├── upload.ts        #  签发受限上传 token(内容直传的那张门票)
 │   ├── catalog.ts       #  ⭐ W7 · Agent 的发现入口
 │   ├── content-meta.ts  #  ⭐ W7 · 创作者写标题进 KV
+│   ├── previews.ts      #  预览图清单(公开 store)
+│   ├── parse-intent.ts  #  ⭐ W14 · 一句话找内容(LLM → 结构化筛选)
 │   └── content/[id].ts  #  ⭐ W7 · 402 报价 / 带凭证据取内容(`[id]` = 动态路由)
 │
 ├── server/              ⭐ 只在服务端跑,**不是路由**
@@ -292,7 +351,8 @@ curl -s -H 'X-Payment: {"txHash":"0x…","payer":"0x…",
 │
 ├── scripts/             ⭐ 本地跑,**不进构建、不进产物**(见下"四条边界"第三条)
 │   ├── agent-buy.mjs    #  ⭐ W8 · Agent 演示主角:发现 → 402 → 报价 → 付款 → 取内容
-│   └── verify-x402.mjs  #  W7 · 反例矩阵(逐条打服务端,不用钱包)
+│   ├── verify-x402.mjs  #  W7 · 反例矩阵(逐条打服务端,不用钱包)
+│   └── verify-intent.mjs#  W14 · 意图解析用例(含降级路径)
 │                        #  ⚠️ 这两个是 `.mjs` 而不是 `.ts`:**两个 tsconfig 的
 │                        #     include 都不含 scripts/**,写 .ts 就 import 不到 shared/
 │
