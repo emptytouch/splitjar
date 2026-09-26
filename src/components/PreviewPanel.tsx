@@ -37,7 +37,16 @@ export function PreviewPanel({ derivation }: { derivation: PreviewDerivation | n
 
       {derivation.k === 'derived' ? (
         <>
-          <div className="overflow-hidden rounded-lg border border-line-soft bg-ink">
+          {/*
+            ⚠️ 图只显示到 288px —— 它在广场上就是卡片里那一格(ContentCard 约 300px 宽)。
+            按栏宽 100% 铺开会有两个坏处:创作者误以为"我传的图会这么大";
+            以及一张 600px 的图把下面的标题、定价整个顶下去。
+
+            ⚠️ 仍然 `h-auto` 保真实比例,**不裁**:这张图的用途是让他看清
+            截了哪一帧、码打在哪,裁掉一格就失去意义了 ——
+            广场上那次 `object-cover` 是另一回事,不用在这里提前替它裁。
+          */}
+          <div className="w-full max-w-[288px] overflow-hidden rounded-lg border border-line-soft bg-ink">
             {url ? (
               <img src={url} alt="将要公开的预览图" className="block h-auto w-full" />
             ) : (

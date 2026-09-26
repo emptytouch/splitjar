@@ -183,10 +183,10 @@ function BackfillPanel({
  照抄一份到这里的必然结局是两份文案漂移
 
  ⚠️ `max-w-md` 是**在调用点收的宽**,不是改 `PreviewPanel`
- —— 它的图是 `w-full`,在 `/create` 那个窄栏里合适;而这里是
- 列表行的整行宽度(桌面约 1000px),不收的话一张 900px 的图会把
- 这一行撑到别的行都没法看。宽度是**上下文**的事,
- 所以约束留在上下文这一侧(同一条纪律见 `ActiveToggle` 的位置)。
+ —— 面板里的文案在列表行的整行宽度(桌面约 1000px)下会拉成
+ 又扁又长的一条,不好读,所以在外面收一道。
+ (图本身已经由 `PreviewPanel` 自己收到 288px 了 —— 那是它
+ 在广场上的真实尺寸,不随上下文变,所以收在组件里。)
  */}
           <div className="mt-3 max-w-md">
             <PreviewPanel derivation={state.preview} />
