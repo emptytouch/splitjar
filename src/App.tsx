@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/Shell'
 import { ConsolePage } from './pages/ConsolePage'
+import { LandingPage } from './pages/LandingPage'
+import { BuyerPage } from './pages/BuyerPage'
 import { CreatePage } from './pages/CreatePage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ExplorePage } from './pages/ExplorePage'
@@ -43,12 +45,31 @@ import { PayPage } from './pages/PayPage'
 export default function App() {
   return (
     <Routes>
+      {/* 买家「我的购买」(方案 3) */}
+      <Route
+        path="/purchased"
+        element={
+          <AppShell>
+            <BuyerPage />
+          </AppShell>
+        }
+      />
+
       {/* 买家页:自己的壳 */}
       <Route path="/p/:id" element={<PayPage />} />
 
-      {/* 创作者页:控制台的壳 */}
+      {/* 落地页:角色分流 landing */}
       <Route
         path="/"
+        element={
+          <AppShell>
+            <LandingPage />
+          </AppShell>
+        }
+      />
+      {/* 创作者页:控制台的壳 */}
+      <Route
+        path="/console"
         element={
           <AppShell>
             <ConsolePage />

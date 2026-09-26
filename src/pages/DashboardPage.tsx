@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAccount, useReadContract } from 'wagmi'
+import { RefreshCw } from 'lucide-react'
 import { Card, PageHeader } from '../components/Shell'
 import { ConnectButton } from '../components/ConnectButton'
 import { ClaimPending } from '../components/ClaimPending'
@@ -84,7 +85,8 @@ export function DashboardPage() {
         subtitle={
           <>
             每一笔都直接读链上的 <code className="text-neutral-300">PaymentSplit</code> 事件 ——
-            <span className="text-neutral-300">没有自己的数据库</span>,也就没有"看板和对不上"的可能。
+            <span className="text-neutral-300">没有自己的数据库</span>
+            ,也就没有"看板和对不上"的可能。
           </>
         }
       />
@@ -98,24 +100,21 @@ export function DashboardPage() {
           {/* ── 汇总 ─────────────────────────────────────────── */}
           <div className="grid gap-5 sm:grid-cols-3">
             <Card title="累计收入">
-              <p className="font-mono tnum text-2xl font-semibold">
+              <p className="font-mono tnum grad-text text-2xl font-semibold">
                 {formatUsdc(totalEarned)}
                 <span className="ml-1.5 text-xs font-normal text-muted">USDC</span>
               </p>
               <p className="mt-1.5 text-[11px] text-muted">只统计进入你的份额</p>
             </Card>
             <Card title="成交笔数">
-              <p className="font-mono tnum text-2xl font-semibold">{totalSales}</p>
+              <p className="font-mono tnum grad-text text-2xl font-semibold">{totalSales}</p>
               <p className="mt-1.5 text-[11px] text-muted">链上事件计数</p>
             </Card>
             <Card
               title="待提取"
               hint="按当前连上的钱包查 pendingBalance —— 协作者连上时看到的是他自己那份"
             >
-              <ClaimPending
-                amount={pending.data ?? 0n}
-                onClaimed={() => void pending.refetch()}
-              />
+              <ClaimPending amount={pending.data ?? 0n} onClaimed={() => void pending.refetch()} />
             </Card>
           </div>
 
@@ -132,8 +131,12 @@ export function DashboardPage() {
                 type="button"
                 onClick={() => void query.refetch()}
                 disabled={query.isFetching}
-                className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[11px] text-neutral-300 transition-colors hover:border-accent disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[11px] text-neutral-300 transition-colors hover:border-accent disabled:opacity-50"
               >
+                <RefreshCw
+                  className={'h-3 w-3' + (query.isFetching ? ' animate-spin' : '')}
+                  aria-hidden
+                />
                 {query.isFetching ? '刷新中…' : '刷新'}
               </button>
             }
@@ -161,7 +164,7 @@ export function DashboardPage() {
                 </p>
                 <Link
                   to="/create"
-                  className="mt-4 inline-block rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-soft"
+                  className="mt-4 inline-block rounded-lg btn-primary px-4 py-2 text-xs font-medium transition-colors"
                 >
                   创建第一件内容
                 </Link>
@@ -169,7 +172,10 @@ export function DashboardPage() {
             ) : (
               <ul className="space-y-4">
                 {rows.map((r) => (
-                  <li key={r.contentId} className="rounded-xl border border-line-soft bg-surface-2/40 p-4">
+                  <li
+                    key={r.contentId}
+                    className="rounded-xl border border-line-soft bg-surface-2/40 p-4"
+                  >
                     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-100">
@@ -177,10 +183,10 @@ export function DashboardPage() {
                             <RowTitleText title={r.title} />
                           </span>
                           {/*
-                            已下架的状态必须比标题更早被看到 —— 否则创作者会疑惑
-                            "为什么没人买"。方案 §14.2 要求买家侧显示"已下架",
-                            创作者侧同理:他自己也得知道。
-                          */}
+ 已下架的状态必须比标题更早被看到 —— 否则创作者会疑惑
+ "为什么没人买"。方案 §14.2 要求买家侧显示"已下架",
+ 创作者侧同理:他自己也得知道。
+ */}
                           {!r.active && <StatusBadge label="已下架" tone="warn" />}
                         </p>
                         <Link
@@ -201,9 +207,9 @@ export function DashboardPage() {
                     </div>
 
                     {/*
-                      ⚠️ 直接子元素,不能在 flex 行里 —— 它内部除了按钮还有一个
-                      会占满宽度的状态说明面板。理由见 `ActiveToggle` 的注释。
-                    */}
+ ⚠️ 直接子元素,不能在 flex 行里 —— 它内部除了按钮还有一个
+ 会占满宽度的状态说明面板。理由见 `ActiveToggle` 的注释。
+ */}
                     <ActiveToggle
                       contentId={r.contentId}
                       active={r.active}
@@ -211,16 +217,16 @@ export function DashboardPage() {
                     />
 
                     {/*
-                      ⚠️ **只在"确实没有"时画这个入口。**
-                      `previews.urls === null` 是"不知道"(还没拉到 / 读失败 /
-                      服务端没配公开 store)—— 那时候什么都不画。当成"没有"
-                      会让创作者在一个根本不缺缩略图的内容上白签一次名,
-                      然后收到一句说不清理由的失败(详见 `usePreviews` 文件头)。
+ ⚠️ **只在"确实没有"时画这个入口。**
+ `previews.urls === null` 是"不知道"(还没拉到 / 读失败 /
+ 服务端没配公开 store)—— 那时候什么都不画。当成"没有"
+ 会让创作者在一个根本不缺缩略图的内容上白签一次名,
+ 然后收到一句说不清理由的失败(详见 `usePreviews` 文件头)。
 
-                      键一律**小写**:服务端写入时统一过 `toLowerCase()`,
-                      catalog 那边也是这么查的。少一次归一化就是"明明有、
-                      却查不到"。
-                    */}
+ 键一律**小写**:服务端写入时统一过 `toLowerCase()`,
+ catalog 那边也是这么查的。少一次归一化就是"明明有、
+ 却查不到"。
+ */}
                     {previews.urls !== null && !previews.urls.has(r.contentId.toLowerCase()) && (
                       <PreviewBackfill
                         contentId={r.contentId}
@@ -248,14 +254,15 @@ export function DashboardPage() {
                               </a>
                               <span className="font-mono">来自 {shortAddress(s.payer)}</span>
                               {/*
-                                ⚠️ 徽章只在 `isAgent` 为真时出现 —— 判定在
-                                `useMyContents` 里做(白名单只有一个定义处),
-                                这一页**不做任何地址比较**。见 shared/agentAddresses.ts。
-                              */}
+ ⚠️ 徽章只在 `isAgent` 为真时出现 —— 判定在
+ `useMyContents` 里做(白名单只有一个定义处),
+ 这一页**不做任何地址比较**。见 shared/agentAddresses.ts。
+ */}
                               {s.isAgent && <StatusBadge label="Agent" tone="agent" />}
                             </span>
                             <span className="text-muted/70">
-                              {times.get(String(s.blockNumber))?.toLocaleString('zh-CN') ?? `块 ${s.blockNumber}`}
+                              {times.get(String(s.blockNumber))?.toLocaleString('zh-CN') ??
+                                `块 ${s.blockNumber}`}
                             </span>
                           </li>
                         ))}
@@ -271,14 +278,15 @@ export function DashboardPage() {
             时间取自区块时间戳;取不到的显示区块号。
             <br />
             <span className="text-muted">[Agent] 标记按地址白名单判定,不是自动识别。</span>{' '}
-            链上两条路走的是同一个 <code>pay(bytes32)</code> 和同一个{' '}
-            <code>PaymentSplit</code> 事件,而且 <code>msg.sender</code> 就是买家本人
-            —— 本来就没有可识别的痕迹,是谁只能靠登记。
+            链上两条路走的是同一个 <code>pay(bytes32)</code> 和同一个 <code>PaymentSplit</code>{' '}
+            事件,而且 <code>msg.sender</code> 就是买家本人 ——
+            本来就没有可识别的痕迹,是谁只能靠登记。
             {AGENT_ENTRIES.length === 0 ? (
               <> 名单现在是空的:还没有地址被登记为 agent,所以没人会被标上。</>
             ) : (
               <>
-                {' '}名单:{' '}
+                {' '}
+                名单:{' '}
                 {AGENT_ENTRIES.map((e, i) => (
                   <span key={e.address}>
                     {i > 0 && '、'}

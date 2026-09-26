@@ -52,8 +52,8 @@ export function ExplorePage() {
         title="内容广场"
         subtitle={
           <>
-            所有在售内容都在这里,价格由创作者定,买断后归你。
-            付款时钱按比例<span className="text-neutral-300">直达</span>各创作者钱包 —— 无平台抽成,无资金池。
+            所有在售内容都在这里,价格由创作者定,买断后归你。 付款时钱按比例
+            <span className="text-neutral-300">直达</span>各创作者钱包 —— 无平台抽成,无资金池。
           </>
         }
         badge={
@@ -96,8 +96,8 @@ export function ExplorePage() {
       )}
 
       {/* 链上一件都没有 —— 明确说"还没有内容",不是一片空列表。
-          ⚠️ 这个分支里**不放搜索框**:一件东西都没有的时候,一个只可能筛出
-          空结果的框比没有框更让人困惑(判据 §3.4 第 5 条)。 */}
+ ⚠️ 这个分支里**不放搜索框**:一件东西都没有的时候,一个只可能筛出
+ 空结果的框比没有框更让人困惑(判据 §3.4 第 5 条)。 */}
       {!query.isLoading && !query.isError && items.length === 0 && (
         <div className="rounded-2xl border border-dashed border-line px-5 py-14 text-center">
           <p className="text-sm text-neutral-300">还没有在售的内容</p>
@@ -106,7 +106,7 @@ export function ExplorePage() {
           </p>
           <Link
             to="/create"
-            className="mt-5 inline-block rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-soft"
+            className="mt-5 inline-block rounded-lg btn-primary px-4 py-2 text-xs font-medium transition-colors"
           >
             我是创作者,去发布
           </Link>

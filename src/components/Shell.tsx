@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { Compass, LayoutDashboard, ShoppingBag, Wallet } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { ConnectButton } from './ConnectButton'
 
 /**
@@ -11,9 +13,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
       <TopNav />
-      <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-10 sm:px-8 lg:pt-14">
-        {children}
-      </main>
+      <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-10 sm:px-8 lg:pt-14">{children}</main>
     </div>
   )
 }
@@ -24,20 +24,20 @@ export function AppShell({ children }: { children: ReactNode }) {
  * **必须与控制台分开**,理由有二:
  *
  * ① 方案 §15 的 375px 移动优先**只对买家付款页成立**(开发计划 9/21 修正)。
- *    把付费页塞进 `AppShell` 的 `max-w-6xl` 里,手机上会得到一栏拉满、
- *    按钮宽到离谱的版面。
+ * 把付费页塞进 `AppShell` 的 `max-w-6xl` 里,手机上会得到一栏拉满、
+ * 按钮宽到离谱的版面。
  * ② 买家不该看到「控制台 / 内容 / 收款」这几个创作者页签 ——
- *    那是另一个角色的导航,出现在付款页上只会让人犹豫"我是不是走错地方了"。
+ * 那是另一个角色的导航,出现在付款页上只会让人犹豫"我是不是走错地方了"。
  *
  * 只留 logo 和连接钱包。顶栏刻意做得比控制台矮。
  */
 export function BuyerShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line-soft bg-ink/75 backdrop-blur-xl">
+      <header className="border-b border-white/[0.06] bg-ink/60 backdrop-blur-2xl">
         <div className="mx-auto flex h-14 w-full max-w-md items-center gap-6 px-5">
           <Link to="/" className="flex shrink-0 items-center gap-2.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_12px_rgba(232,65,66,0.75)]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-brand shadow-[0_0_14px_rgba(232,65,66,0.85)]" />
             <span className="text-[15px] font-semibold tracking-tight">SplitJar</span>
             <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">
               收钱罐
@@ -84,18 +84,19 @@ export function BuyerShell({ children }: { children: ReactNode }) {
  * 买家必须先拿到 `/p/:id` 链接才能买,没有任何"去哪儿逛逛"的路径。
  */
 function TopNav() {
-  const tabs = [
-    { to: '/', label: '控制台', end: true },
-    { to: '/explore', label: '发现' },
-    { to: '/create', label: '创建' },
-    { to: '/dashboard', label: '内容与收款' },
+  const tabs: { to: string; label: string; icon: LucideIcon }[] = [
+    { to: '/console', label: '控制台', icon: LayoutDashboard },
+    { to: '/explore', label: '内容广场', icon: Compass },
+    { to: '/purchased', label: '已购', icon: ShoppingBag },
+    // { to: '/create', label: '创建' },
+    { to: '/dashboard', label: '收款', icon: Wallet },
   ]
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line-soft bg-ink/75 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-ink/60 backdrop-blur-2xl">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-6 px-5 sm:px-8">
         <Link to="/" className="flex shrink-0 items-center gap-2.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_12px_rgba(232,65,66,0.75)]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-brand shadow-[0_0_14px_rgba(232,65,66,0.85)]" />
           <span className="text-[15px] font-semibold tracking-tight">SplitJar</span>
           <span className="hidden rounded-full border border-line px-2 py-0.5 text-[11px] text-muted sm:inline">
             收钱罐
@@ -107,13 +108,13 @@ function TopNav() {
             <NavLink
               key={t.to}
               to={t.to}
-              end={t.end}
               className={({ isActive }) =>
                 isActive
-                  ? 'rounded-lg bg-white/[0.06] px-3 py-1.5 text-sm text-neutral-100'
-                  : 'rounded-lg px-3 py-1.5 text-sm text-muted transition-colors hover:text-neutral-300'
+                  ? 'flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-3 py-1.5 text-sm text-neutral-100'
+                  : 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted transition-colors hover:text-neutral-300'
               }
             >
+              <t.icon className="h-4 w-4 shrink-0" aria-hidden />
               {t.label}
             </NavLink>
           ))}
@@ -161,9 +162,7 @@ export function Card({
   className?: string
 }) {
   return (
-    <section
-      className={`flex flex-col rounded-2xl border border-line bg-surface/70 p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset] sm:p-6 ${className}`}
-    >
+    <section className={`flex flex-col rounded-3xl glass glass-edge p-5 sm:p-6 ${className}`}>
       {title && (
         <header className="mb-5 flex items-start justify-between gap-4">
           <div>

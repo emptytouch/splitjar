@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useAccount } from 'wagmi'
 import { ConnectButton } from '../components/ConnectButton'
 import { PayStatus } from '../components/PayStatus'
@@ -20,9 +20,9 @@ import { usePayFlow } from '../hooks/usePayFlow'
  *
  * ① §15「付费页首屏不得白屏」→ 内容没读完时给骨架屏,不是空白。
  * ② §5.1 / §19「必须在付费页**购买前**显著提示'数字内容,一经售出概不退款'」
- *    → 落在付款按钮的下方,付款之前一定看得见。
+ * → 落在付款按钮的下方,付款之前一定看得见。
  * ③ §14.1「付费页**移动端主战场**」→ 用 `BuyerShell` 的 `max-w-md`,
- *    桌面是增强(多一列二维码),不是默认。
+ * 桌面是增强(多一列二维码),不是默认。
  */
 
 /** 骨架屏。方案 §14.2 明确要求「加载中:骨架屏,付费页首屏不得白屏」 */
@@ -128,8 +128,8 @@ export function PayPage() {
   const recovery = flow.state.k === 'blocked' ? describeBlock(flow.state.reason).recovery : null
 
   // ① 出路是『下载』(「你已经买过了」) —— 该做的是下载,而 `PayStatus`
-  //    已经给了下载按钮。再摆一个同样醒目的「重新检查」,只会把视线从
-  //    正确的动作上分走。
+  // 已经给了下载按钮。再摆一个同样醒目的「重新检查」,只会把视线从
+  // 正确的动作上分走。
   //
   // ⚠️ 这条以前不显眼,因为这个状态只在点过付款之后才出现;闸门把它提到了首屏。
   const downloadIsTheAction = recovery?.k === 'download'
@@ -177,7 +177,7 @@ export function PayPage() {
           </div>
 
           {/* ── 分账明细:这是产品的核心卖点,放在最显眼的地方 ── */}
-          <div className="rounded-2xl border border-line bg-surface/70 p-4">
+          <div className="rounded-3xl glass glass-edge p-4">
             <p className="mb-3 text-[11px] tracking-wide text-muted">
               付完之后,钱按这个比例直达各方的钱包 —— 无平台抽成,无资金池
             </p>
@@ -191,18 +191,27 @@ export function PayPage() {
 
           {/* ── 状态与主按钮 ─────────────────────────────────── */}
           {/*
-            contentId 必须传下去 —— 付款成功和「你已经买过了」两种状态里,
-            `PayStatus` 都要渲染下载按钮(W5)。它已经在上面被
-            `normalizeContentId` **归一化成小写**了,而服务端的 nonce
-            是按 contentId 绑定的:大小写不一致会让刚拿到的凭证就报
-            「与内容不匹配」。
-          */}
+ contentId 必须传下去 —— 付款成功和「你已经买过了」两种状态里,
+ `PayStatus` 都要渲染下载按钮(W5)。它已经在上面被
+ `normalizeContentId` **归一化成小写**了,而服务端的 nonce
+ 是按 contentId 绑定的:大小写不一致会让刚拿到的凭证就报
+ 「与内容不匹配」。
+ */}
           <PayStatus
             state={flow.state}
             needsApprove={flow.needsApprove}
             contentId={contentId}
             filenameBase={title}
           />
+
+          {downloadIsTheAction && (
+            <Link
+              to="/purchased"
+              className="block rounded-xl border border-line bg-surface-2/50 px-4 py-3 text-center text-xs text-neutral-200 transition-colors hover:border-accent"
+            >
+              已购 · 查看我的购买 →
+            </Link>
+          )}
 
           {flow.state.k !== 'success' && !downloadIsTheAction && !noWayOut && (
             <>
@@ -225,7 +234,7 @@ export function PayPage() {
                     flow.state.k !== 'blocked' &&
                     flow.state.k !== 'failed'
                   }
-                  className="w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45"
+                  className="w-full rounded-2xl btn-primary px-5 py-3.5 text-sm font-medium shadow-glow transition-[background-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {flow.state.k === 'idle'
                     ? `付款 ${formatUsdc(price!)} USDC`
@@ -246,26 +255,26 @@ export function PayPage() {
           {/* ── §5.1 / §19:购买前必须显著提示不退款 ───────────── */}
           {flow.state.k !== 'success' && (
             <p className="rounded-xl border border-amber-400/25 bg-amber-400/[0.05] px-4 py-3 text-[11px] leading-relaxed text-amber-200/90">
-              <span className="font-medium">数字内容,一经售出概不退款。</span>
-              {' '}付款会按上面的比例立刻分给各方,链上交易不可撤销。
+              <span className="font-medium">数字内容,一经售出概不退款。</span>{' '}
+              付款会按上面的比例立刻分给各方,链上交易不可撤销。
             </p>
           )}
 
           {/* ── 二维码:只在宽屏。手机打开时它自己就是那个页面 ──
-              ⚠️ 它下面写的是「用手机扫这个码,**完成付款**」—— 所以只有
-              **现在确实付得了款**时它才成立。以前这里没有任何状态守卫,
-              于是一个已下架的内容,新买家照样看到二维码(用户 2026-09-23
-              看截图提出)。扫过去也付不了:`pay()` 会 revert `ContentInactive`。
+ ⚠️ 它下面写的是「用手机扫这个码,**完成付款**」—— 所以只有
+ **现在确实付得了款**时它才成立。以前这里没有任何状态守卫,
+ 于是一个已下架的内容,新买家照样看到二维码(用户 2026-09-23
+ 看截图提出)。扫过去也付不了:`pay()` 会 revert `ContentInactive`。
 
-              `k === 'idle'` 正是"付得了款"这个条件:闸门放行、或页面自己
-              接管的两种情形(没连钱包 / 网络不对 —— 那两种恰恰**最该**给码,
-              桌面用户扫一下就能用手机上有钱包的浏览器打开)。其余每一态
-              都付不了:已购/已下架/余额不足/查询中/等待签名/上链中/失败。
+ `k === 'idle'` 正是"付得了款"这个条件:闸门放行、或页面自己
+ 接管的两种情形(没连钱包 / 网络不对 —— 那两种恰恰**最该**给码,
+ 桌面用户扫一下就能用手机上有钱包的浏览器打开)。其余每一态
+ 都付不了:已购/已下架/余额不足/查询中/等待签名/上链中/失败。
 
-              ⚠️ `failed` 也藏,这一条**不是顺手**,是必须:
-              `receipt-timeout` 意味着**交易很可能已经成功**(收据回来了但
-              `purchases` 标记没读到)。那种时候还摆一个"扫码完成付款",
-              等于请用户**再付一次**。宁可少给一个入口。 */}
+ ⚠️ `failed` 也藏,这一条**不是顺手**,是必须:
+ `receipt-timeout` 意味着**交易很可能已经成功**(收据回来了但
+ `purchases` 标记没读到)。那种时候还摆一个"扫码完成付款",
+ 等于请用户**再付一次**。宁可少给一个入口。 */}
           {flow.state.k === 'idle' && (
             <div className="hidden justify-center border-t border-line-soft pt-6 sm:flex">
               <ShareQr
