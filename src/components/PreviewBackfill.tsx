@@ -81,10 +81,10 @@ export function PreviewBackfill({
         </p>
 
         {/*
-          真正的 input 藏起来 —— 原生控件没法跟这套视觉一致。
-          ⚠️ **不能用 `display:none`**:那样它连键盘和读屏都摸不到。
-          `sr-only` 保留可聚焦性,下面那个按钮负责唤起它
-        */}
+ 真正的 input 藏起来 —— 原生控件没法跟这套视觉一致。
+ ⚠️ **不能用 `display:none`**:那样它连键盘和读屏都摸不到。
+ `sr-only` 保留可聚焦性,下面那个按钮负责唤起它
+ */}
         <input
           ref={input}
           id={inputId}
@@ -167,9 +167,7 @@ function BackfillPanel({
                   style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
                 />
               </div>
-              <p className="mt-1 text-right text-[11px] text-muted tnum">
-                {Math.round(progress)}%
-              </p>
+              <p className="mt-1 text-right text-[11px] text-muted tnum">{Math.round(progress)}%</p>
             </div>
           )}
         </Panel>
@@ -180,16 +178,16 @@ function BackfillPanel({
       return (
         <>
           {/*
-            ⚠️ 复用 `/create` 那个面板,不另写一套。它已经把两件必须说的话
-            说全了:这张图**会公开**,以及水印是真打上去的。
-            照抄一份到这里的必然结局是两份文案漂移
+ ⚠️ 复用 `/create` 那个面板,不另写一套。它已经把两件必须说的话
+ 说全了:这张图**会公开**,以及水印是真打上去的。
+ 照抄一份到这里的必然结局是两份文案漂移
 
-            ⚠️ `max-w-md` 是**在调用点收的宽**,不是改 `PreviewPanel`
-            —— 它的图是 `w-full`,在 `/create` 那个窄栏里合适;而这里是
-            列表行的整行宽度(桌面约 1000px),不收的话一张 900px 的图会把
-            这一行撑到别的行都没法看。宽度是**上下文**的事,
-            所以约束留在上下文这一侧(同一条纪律见 `ActiveToggle` 的位置)。
-          */}
+ ⚠️ `max-w-md` 是**在调用点收的宽**,不是改 `PreviewPanel`
+ —— 它的图是 `w-full`,在 `/create` 那个窄栏里合适;而这里是
+ 列表行的整行宽度(桌面约 1000px),不收的话一张 900px 的图会把
+ 这一行撑到别的行都没法看。宽度是**上下文**的事,
+ 所以约束留在上下文这一侧(同一条纪律见 `ActiveToggle` 的位置)。
+ */}
           <div className="mt-3 max-w-md">
             <PreviewPanel derivation={state.preview} />
           </div>
@@ -204,7 +202,7 @@ function BackfillPanel({
             type="button"
             onClick={onSubmit}
             disabled={!canSubmit(state)}
-            className="mt-3 w-full rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-3 w-full rounded-lg btn-primary px-4 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             确认上传
           </button>

@@ -16,7 +16,7 @@ import { UNLOCK_STEP_COPY, describeUnlockFailure, secondsLeft } from '../lib/unl
  * ## ⚠️ 「下载」其实是**三次加密学动作**,不是一次点击
  *
  * ```
- * 取 nonce  →  钱包签名(EIP-712,不花钱不上链)  →  换取 60 秒 URL
+ * 取 nonce → 钱包签名(EIP-712,不花钱不上链) → 换取 60 秒 URL
  * ```
  *
  * 三次等待都必须有可见进度,否则用户会以为卡死了 —— 尤其是签名那一步,
@@ -79,7 +79,13 @@ function Spinner() {
   )
 }
 
-export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; filenameBase?: string }) {
+export function UnlockButton({
+  contentId,
+  filenameBase,
+}: {
+  contentId: Hex
+  filenameBase?: string
+}) {
   const { state, unlock, reset, canStart } = useUnlockFlow(contentId)
 
   /**
@@ -160,7 +166,9 @@ export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; file
       <div className="space-y-3">
         <div
           className={`rounded-xl border px-4 py-3.5 ${
-            expired ? 'border-amber-400/30 bg-amber-400/[0.06]' : 'border-emerald-400/30 bg-emerald-400/[0.06]'
+            expired
+              ? 'border-amber-400/30 bg-amber-400/[0.06]'
+              : 'border-emerald-400/30 bg-emerald-400/[0.06]'
           }`}
         >
           <p className="text-sm leading-relaxed text-neutral-100">{headline}</p>
@@ -180,7 +188,7 @@ export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; file
           <button
             type="button"
             onClick={unlock}
-            className="w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
+            className="w-full rounded-xl btn-primary px-5 py-3.5 text-sm font-medium transition-colors"
           >
             重新获取下载链接
           </button>
@@ -214,7 +222,9 @@ export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; file
     const d = describeUnlockFailure(state.reason, state.step)
     return (
       <div className="space-y-3">
-        <div className={`rounded-xl border px-4 py-3.5 ${d.canRetry ? 'border-amber-400/30 bg-amber-400/[0.06]' : 'border-accent/35 bg-accent/[0.07]'}`}>
+        <div
+          className={`rounded-xl border px-4 py-3.5 ${d.canRetry ? 'border-amber-400/30 bg-amber-400/[0.06]' : 'border-accent/35 bg-accent/[0.07]'}`}
+        >
           <p className="text-sm leading-relaxed text-neutral-100">{d.title}</p>
           {d.hint && <p className="mt-1.5 text-xs leading-relaxed text-muted">{d.hint}</p>}
           {/* 服务端原始的 code 原样显示 —— 排查时看得到,平时不占视线 */}
@@ -229,7 +239,7 @@ export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; file
             <button
               type="button"
               onClick={unlock}
-              className="flex-1 rounded-xl bg-accent px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
+              className="flex-1 rounded-xl btn-primary px-5 py-3 text-sm font-medium transition-colors"
             >
               再试一次
             </button>
@@ -253,7 +263,7 @@ export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; file
         type="button"
         onClick={unlock}
         disabled={!canStart}
-        className="w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45"
+        className="w-full rounded-xl btn-primary px-5 py-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45"
       >
         下载内容
       </button>
@@ -264,4 +274,3 @@ export function UnlockButton({ contentId, filenameBase }: { contentId: Hex; file
     </div>
   )
 }
-

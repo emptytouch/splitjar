@@ -1,34 +1,128 @@
 @import "tailwindcss";
 
+/*
+ * 极光双色（Cyan #22D3EE + Violet #A855F7）
+ *
+ * 分工：青 = 主色（CTA、金额、焦点），紫 = 渐变末端与 hover 描边，
+ *       Avalanche 红降级为 `--color-brand`，只出现在 logo 圆点 ——
+ *       红同时做主色会和青紫打架，整套立刻变廉价。
+ */
 @theme {
-  --color-ink: #0a0a0d;
-  --color-surface: #131318;
-  --color-surface-2: #1a1a21;
-  --color-line: #26262f;
-  --color-line-soft: #1e1e26;
-  --color-muted: #8b8b96;
+  --color-ink: #07070f;
+  --color-surface: #12122a;
+  --color-surface-2: #1c1c3c;
+  --color-line: #2c3557;
+  --color-line-soft: #222237;
+  --color-muted: #9398c0;
 
-  /* Avalanche 红 —— 主办方生态的视觉锚点 */
-  --color-accent: #e84142;
-  --color-accent-soft: #ff6b6c;
+  /* 主色：青 → 紫，两者成对出现才有"极光"的味道 */
+  --color-accent: #22d3ee;
+  --color-accent-2: #a855f7;
+  --color-accent-soft: #67e8f9;
+
+  /* 主办方视觉锚点，只给 logo 圆点用 */
+  --color-brand: #e84142;
+
+  /* 光晕与 hover 描边 */
+  --color-glow: #a855f7;
+
+  --shadow-card: 0 1px 0 0 rgba(255, 255, 255, 0.08) inset,
+    0 16px 40px -14px rgba(0, 0, 0, 0.8);
+  --shadow-card-hover: 0 1px 0 0 rgba(255, 255, 255, 0.12) inset,
+    0 20px 48px -14px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(168, 85, 247, 0.35);
+
+  /* 渐变按钮的外发光 —— 青紫混出来的蓝白光，不是纯色光 */
+  --shadow-glow: 0 0 30px -4px rgba(120, 160, 255, 0.6);
 }
 
 html {
   color-scheme: dark;
 }
 
+/*
+ * 玻璃材质 —— 半透明底 + 背景模糊 + 蓝紫描边。
+ *
+ * ⚠️ 为什么做成 `@utility` 而不是散在各组件里写三件套:
+ * "玻璃"是这一版风格的**统一材质**,写散了一定会出现有的卡片模糊、
+ * 有的不模糊、描边深浅不一的漂移 —— 而那种不一致正是"廉价感"的来源。
+ */
+@utility glass {
+  background: color-mix(in oklab, var(--color-surface) 52%, transparent);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-card);
+}
+
+/*
+ * 玻璃卡的边框单独一条 utility —— 刻意**不**并进 `glass`。
+ * 并进去就会用 `border` 简写把 width/style/color 一次写死,
+ * 组件里的 `hover:border-glow/50` 改不动颜色,hover 那圈紫描边就没了。
+ */
+@utility glass-edge {
+  border: 1px solid rgba(150, 180, 255, 0.26);
+}
+
+/*
+ * 主 CTA：青→紫渐变 + 深色字 + 外发光。
+ * 深色字是刻意的 —— 高饱和渐变底上放白字会糊成一团,对比度也过不了。
+ */
+@utility btn-primary {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+  color: #08111c;
+  font-weight: 600;
+  box-shadow: var(--shadow-glow);
+}
+
+/*
+ * 关键数字走渐变填字。只给"累计收入/成交笔数"这类主 KPI,
+ * 铺满全页就成花屏了。
+ */
+@utility grad-text {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
 body {
   min-height: 100%;
-  /* 顶部一抹极淡的红光,给深色底一点纵深 —— 别调亮,亮了就俗 */
+  /*
+   * 三团光晕：左上青、右上紫、底部蓝托底。
+   * ⚠️ 这是"极光原版"——透明度 0.30/0.32/0.16 已经偏高,
+   *    再加元素就会显花,后续新增模块请克制。
+   */
   background:
-    radial-gradient(1100px 520px at 50% -12%, rgba(232, 65, 66, 0.1), transparent 68%),
+    radial-gradient(760px 440px at 6% -6%, rgba(34, 211, 238, 0.3), transparent 58%),
+    radial-gradient(720px 430px at 94% 2%, rgba(168, 85, 247, 0.32), transparent 60%),
+    radial-gradient(660px 420px at 50% 108%, rgba(59, 130, 246, 0.16), transparent 64%),
     var(--color-ink);
   background-attachment: fixed;
-  color: #f4f4f6;
+  color: #f0f2ff;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/*
+ * 可点元素统一 pointer。
+ *
+ * ⚠️ 浏览器只给 `<a href>` 默认 pointer —— `<button>` 的默认光标是 **default**,
+ *    点上去光标不变,用户会以为"没点到"。这是本页最容易被忽略的交互缺陷。
+ *    放在 @layer base 里,让组件上的 `disabled:cursor-not-allowed` 仍能盖过它。
+ */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
 }
 
 /* 尊重系统的"减少动态效果"设置(方案 §15 可访问性要求) */

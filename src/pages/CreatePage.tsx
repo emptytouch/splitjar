@@ -243,8 +243,7 @@ export function CreatePage() {
    * 什么都没来得及做就被指责了一次。这是本工作包最容易重犯的错。
    */
   const [touched, setTouched] = useState<Record<string, boolean>>({})
-  const markTouched = (field: string) =>
-    setTouched((t) => (t[field] ? t : { ...t, [field]: true }))
+  const markTouched = (field: string) => setTouched((t) => (t[field] ? t : { ...t, [field]: true }))
   const shown = (field: string) => (touched[field] ? parsed.errors[field] : undefined)
 
   /**
@@ -350,10 +349,10 @@ export function CreatePage() {
         >
           <div className="space-y-5">
             {/*
-              文件放在**最前面** —— 它是"这份内容是什么"的实体,
-              而标题只是给链接用的一句人话。顺序反了的话用户会先想标题,
-              再回头发现文件还没选。
-            */}
+ 文件放在**最前面** —— 它是"这份内容是什么"的实体,
+ 而标题只是给链接用的一句人话。顺序反了的话用户会先想标题,
+ 再回头发现文件还没选。
+ */}
             <FilePick
               draft={draftOf(publishState)}
               hashing={publishState.k === 'hashing'}
@@ -366,12 +365,12 @@ export function CreatePage() {
             />
 
             {/*
-              预览图紧跟在文件下面 —— 它**派生自**上面那个文件,
-              放到右栏(「这会生成什么」是付费页的分账明细)会让"这张图
-              从哪来的"变得看不出来。
-              ⚠️ 传的是 `draftOf(state)?.preview`,所以它和文件、指纹
-              是同一批落地的:换文件时三样一起换,不会出现图和文件对不上
-            */}
+ 预览图紧跟在文件下面 —— 它**派生自**上面那个文件,
+ 放到右栏(「这会生成什么」是付费页的分账明细)会让"这张图
+ 从哪来的"变得看不出来。
+ ⚠️ 传的是 `draftOf(state)?.preview`,所以它和文件、指纹
+ 是同一批落地的:换文件时三样一起换,不会出现图和文件对不上
+ */}
             <PreviewPanel derivation={draftOf(publishState)?.preview ?? null} />
 
             <div>
@@ -429,7 +428,7 @@ export function CreatePage() {
 
               <div className="space-y-2.5">
                 {/* 第 1 行:我。地址只读 —— 合约的 creator 恒为 msg.sender,
-                    但钱是按 recipients 分的,第 1 行写错就是钱打到别人那 */}
+ 但钱是按 recipients 分的,第 1 行写错就是钱打到别人那 */}
                 <div className="flex items-start gap-2.5">
                   <div className="min-w-0 flex-1">
                     <div className="truncate rounded-xl border border-line/60 bg-surface-2/30 px-3.5 py-2.5 font-mono text-sm text-muted">
@@ -452,9 +451,7 @@ export function CreatePage() {
                   {/* 占位,让比例框与下面几行的删除按钮对齐 */}
                   <div className="w-7 shrink-0" aria-hidden />
                 </div>
-                {shown('myPct') && (
-                  <p className="text-[11px] text-accent-soft">{shown('myPct')}</p>
-                )}
+                {shown('myPct') && <p className="text-[11px] text-accent-soft">{shown('myPct')}</p>}
 
                 {rows.map((r) => (
                   <div key={r.id}>
@@ -535,8 +532,8 @@ export function CreatePage() {
               <p className="mt-3 text-[11px] leading-relaxed text-muted/70">
                 前几方按比例取整,
                 <span className="text-neutral-300">最后一方拿余数</span>
-                —— 这样支付金额恒等于分账之和,合约不留灰尘。
-                改行序或删行会让余数换人,各方金额最多差 0.000001 USDC。
+                —— 这样支付金额恒等于分账之和,合约不留灰尘。 改行序或删行会让余数换人,各方金额最多差
+                0.000001 USDC。
               </p>
 
               {parsed.warnings.length > 0 && (
@@ -553,7 +550,11 @@ export function CreatePage() {
         </Card>
 
         {/* ── 预览 + 提交 ──────────────────────────────────── */}
-        <Card title="这会生成什么" hint="下面就是买家在付费页上看到的分账明细" className="lg:col-span-2">
+        <Card
+          title="这会生成什么"
+          hint="下面就是买家在付费页上看到的分账明细"
+          className="lg:col-span-2"
+        >
           <div className="flex flex-1 flex-col gap-5">
             <div className="rounded-xl border border-line-soft bg-surface-2/40 p-4">
               <p className="text-sm text-neutral-200">{normalizeTitle(title) || '付费内容'}</p>
@@ -563,10 +564,10 @@ export function CreatePage() {
               </p>
 
               {/*
-                这里**不要**加 `&& address` —— 几行写的是"我"和各协作者,
-                只是比例分配,根本不需要知道钱包地址。之前挂了 address,
-                结果没连钱包时这张卡片是半空的:填了 70% 却看不到 30% 归谁。
-              */}
+ 这里**不要**加 `&& address` —— 几行写的是"我"和各协作者,
+ 只是比例分配,根本不需要知道钱包地址。之前挂了 address,
+ 结果没连钱包时这张卡片是半空的:填了 70% 却看不到 30% 归谁。
+ */}
               <ul className="mt-3.5 space-y-1.5 border-t border-line-soft pt-3.5 text-xs">
                 <li className="flex justify-between">
                   <span className="text-neutral-300">我</span>
@@ -585,8 +586,8 @@ export function CreatePage() {
               </ul>
 
               {/* 只有合计正确时才显示"实际到手多少" —— 合计不对时链上会 revert,
-                  这时按余数规则算出来的金额是**假的**,显示了反而误导。
-                  (与标题、地址无关,别把它挂到 `parsed.ok` 上,见 `amountPreview` 的注释) */}
+ 这时按余数规则算出来的金额是**假的**,显示了反而误导。
+ (与标题、地址无关,别把它挂到 `parsed.ok` 上,见 `amountPreview` 的注释) */}
               {parsed.amountPreview && (
                 <ul className="mt-3 space-y-1.5 border-t border-line-soft pt-3 text-xs">
                   {parsed.amountPreview.map((amt, i) => (
@@ -669,16 +670,15 @@ export function CreatePage() {
                   </div>
                   <ShareRow contentId={contentId} title={parsed.title} />
                   {/*
-                    ⚠️ 标题没写进服务端 —— **不是失败,是一行提示**。
-                    内容已经上链、钱已经花了,这条只影响 `GET /api/catalog`
-                    里那一格 `title`(会显示成 `null`)。所以它是灰字提示,
-                    不是错误面板,也不给"重试"按钮 —— 收益只是一行展示文字。
-                  */}
+ ⚠️ 标题没写进服务端 —— **不是失败,是一行提示**。
+ 内容已经上链、钱已经花了,这条只影响 `GET /api/catalog`
+ 里那一格 `title`(会显示成 `null`)。所以它是灰字提示,
+ 不是错误面板,也不给"重试"按钮 —— 收益只是一行展示文字。
+ */}
                   {flow.titleSaved === false && (
                     <p className="text-xs leading-relaxed text-muted">
-                      ⚠️ 标题没能写进服务端 —— 内容本身已经创建成功、可以正常出售和付款,
-                      只是 Agent 的 <code className="font-mono">/api/catalog</code> 里这一件
-                      会没有标题。
+                      ⚠️ 标题没能写进服务端 —— 内容本身已经创建成功、可以正常出售和付款, 只是 Agent
+                      的 <code className="font-mono">/api/catalog</code> 里这一件 会没有标题。
                     </p>
                   )}
                   <button
@@ -700,22 +700,25 @@ export function CreatePage() {
                   // 失败态下它必然是灰的(重试的出口在 FailedPanel 里)
                   onClick={submit}
                   disabled={!canSubmit || busy}
-                  className="w-full rounded-xl bg-accent px-5 py-3.5 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45"
+                  className="w-full rounded-xl btn-primary px-5 py-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {busy ? `${PUBLISH_STEP_COPY[publishState.step].title}…` : '创建并上传'}
                 </button>
               )}
 
               {/* 提交按钮点不动时,必须说清楚是哪里没填好 —— 灰着不给理由是最气人的 */}
-              {isConnected && onFuji && publishState.k !== 'done' && publishState.k !== 'failed' && (
-                <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
-                  {!parsed.ok
-                    ? `上面还有 ${blockers} 处没填好。`
-                    : !fileReady && !busy
-                      ? '还没选内容文件 —— 没有文件就没法发布。'
-                      : null}
-                </p>
-              )}
+              {isConnected &&
+                onFuji &&
+                publishState.k !== 'done' &&
+                publishState.k !== 'failed' && (
+                  <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
+                    {!parsed.ok
+                      ? `上面还有 ${blockers} 处没填好。`
+                      : !fileReady && !busy
+                        ? '还没选内容文件 —— 没有文件就没法发布。'
+                        : null}
+                  </p>
+                )}
             </div>
           </div>
         </Card>
@@ -730,9 +733,9 @@ export function CreatePage() {
  * ## 三个出口,而它们后果完全不同
  *
  * ```
- * 重试        从倒下那一步接上(文件传过了就跳过上传)
- * 跳过上传    ⚠️ 只在"上传那一步失败"时出现,会写链
- * 重新开始    换一个 contentId,从头来
+ * 重试 从倒下那一步接上(文件传过了就跳过上传)
+ * 跳过上传 ⚠️ 只在"上传那一步失败"时出现,会写链
+ * 重新开始 换一个 contentId,从头来
  * ```
  *
  * ⚠️ 「跳过上传」必须和「重试」**长得不一样、位置也不挨着** ——
@@ -774,7 +777,7 @@ function FailedPanel({
           <button
             type="button"
             onClick={onRetry}
-            className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-xs font-medium text-white transition-colors hover:bg-accent-soft"
+            className="flex-1 rounded-xl btn-primary px-4 py-2.5 text-xs font-medium transition-colors"
           >
             {state.uploaded ? '重试(跳过上传,只补交易)' : '重试'}
           </button>

@@ -60,8 +60,8 @@ export function FilePick({
       </label>
 
       {/* 真正的 input 藏起来 —— 原生控件没法跟这套视觉一致。
-          但**不能用 `display:none`**:那样它连键盘和读屏都摸不到。
-          `sr-only` 保留可聚焦性,下面那个 label 用 htmlFor 关联它 */}
+ 但**不能用 `display:none`**:那样它连键盘和读屏都摸不到。
+ `sr-only` 保留可聚焦性,下面那个 label 用 htmlFor 关联它 */}
       <input
         ref={input}
         id="content-file"
@@ -94,7 +94,9 @@ export function FilePick({
           <span className="block space-y-2">
             <span className="flex items-baseline justify-between gap-3">
               <span className="truncate text-sm text-neutral-100">{draft.file.name}</span>
-              <span className="shrink-0 text-xs text-muted tnum">{formatBytes(draft.file.size)}</span>
+              <span className="shrink-0 text-xs text-muted tnum">
+                {formatBytes(draft.file.size)}
+              </span>
             </span>
             <span className="block">
               <span className="block text-[11px] text-muted">文件指纹(会上链)</span>
@@ -108,7 +110,8 @@ export function FilePick({
           <span className="block text-center">
             <span className="text-sm text-neutral-200">点这里选文件</span>
             <span className="mt-1 block text-[11px] leading-relaxed text-muted/70">
-              PDF、视频、压缩包都行,大小不超过 200 MiB。文件不经过我们的服务器,直接从你的浏览器传到存储。
+              PDF、视频、压缩包都行,大小不超过 200
+              MiB。文件不经过我们的服务器,直接从你的浏览器传到存储。
             </span>
           </span>
         )}

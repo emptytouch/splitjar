@@ -19,12 +19,12 @@ import type { DegradeReason } from '../../shared/intent'
  * 但**故意不用气泡**:
  *
  * - 气泡的视觉约定是"两个人在说话",而这里**没有第二个人** —— 模型只做一次
- *   翻译就退场,没有第二轮、没有记忆。画成气泡就是在暗示有个 agent 在陪聊,
- *   那正是 §3.2 明令不许的("不要写成我实现了一个 agent")。
+ * 翻译就退场,没有第二轮、没有记忆。画成气泡就是在暗示有个 agent 在陪聊,
+ * 那正是 §3.2 明令不许的("不要写成我实现了一个 agent")。
  * - 所以每行左侧是一个**陈述事实的标签**(`你` / `解析` / `没能解析` / `没能问上`),
- *   不是说话人名字。`解析` 是一个动作,不是一个人。
+ * 不是说话人名字。`解析` 是一个动作,不是一个人。
  * - ⚠️ 计划 §3.1 那张示意图上框里写着 `agent` —— **那张图和 §3.2 自相矛盾**,
- *   按 §3.2 走。已记在 `docs/W14-实施计划.md` §9.3。
+ * 按 §3.2 走。已记在 `docs/W14-实施计划.md` §9.3。
  *
  * ## ⭐ 降级是"同一块面板换个人填",不是另一套 UI
  *
@@ -44,7 +44,7 @@ export function IntentSearch({ items }: { items: readonly CatalogEntry[] }) {
   return (
     <>
       {/* ⚠️ 服务端说了"没配模型密钥" ⇒ 整个问句框收掉(见 useIntentSearch 文件头)。
-          留着一个只可能再失败一次的按钮,比没有按钮更糟 —— 实测过。 */}
+ 留着一个只可能再失败一次的按钮,比没有按钮更糟 —— 实测过。 */}
       {!s.parseUnavailable && (
         <form
           onSubmit={(e) => {
@@ -66,7 +66,7 @@ export function IntentSearch({ items }: { items: readonly CatalogEntry[] }) {
           <button
             type="submit"
             disabled={s.asking || s.text.trim() === ''}
-            className="shrink-0 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 rounded-xl btn-primary px-5 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
           >
             {s.asking ? '正在理解…' : '问一问'}
           </button>
@@ -84,14 +84,19 @@ export function IntentSearch({ items }: { items: readonly CatalogEntry[] }) {
       {s.turns.length > 0 && (
         <ol aria-label="解析记录" className="mb-5 space-y-3">
           {s.turns.map((turn) => (
-            <TurnRow key={turn.id} turn={turn} onRetry={() => void s.ask(turn.question)} onManual={s.useManual} />
+            <TurnRow
+              key={turn.id}
+              turn={turn}
+              onRetry={() => void s.ask(turn.question)}
+              onManual={s.useManual}
+            />
           ))}
         </ol>
       )}
 
       {/* 筛选项 —— 意图模式下由模型填,手动模式下用户自己填(见文件头) */}
       {(s.manual || s.asked) && (
-        <div className="mb-5 rounded-2xl border border-line bg-surface/50 p-4">
+        <div className="mb-5 rounded-3xl glass glass-edge p-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="关键词(匹配标题)">
               <input
@@ -136,7 +141,9 @@ export function IntentSearch({ items }: { items: readonly CatalogEntry[] }) {
 
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[11px] leading-relaxed text-muted/70">
-              {s.manual ? '手动筛选 —— 模型不可用时这些框照样能用。' : '上面是模型的理解,可以直接改。'}
+              {s.manual
+                ? '手动筛选 —— 模型不可用时这些框照样能用。'
+                : '上面是模型的理解,可以直接改。'}
             </p>
             <button
               type="button"
@@ -162,20 +169,23 @@ export function IntentSearch({ items }: { items: readonly CatalogEntry[] }) {
       {s.active && s.summary !== null && s.results !== null && (
         <p aria-live="polite" className="mb-4 text-xs leading-relaxed text-muted">
           {/* ⚠️ `emptyFilter` 必须**排在** `results.length > 0` 前面。
-              这两条会同时成立(空条件 + 目录非空 ⇒ 结果就是全部)。
-              反过来写的话,用户说「看看有什么」会看到「找到 2 件」——
-              那个数字和广场上的总数一模一样,说它只是噪音(2026-09-26 被
-              `probe-intent-search.mjs` 的场景 1b 抓出来过)。 */}
+ 这两条会同时成立(空条件 + 目录非空 ⇒ 结果就是全部)。
+ 反过来写的话,用户说「看看有什么」会看到「找到 2 件」——
+ 那个数字和广场上的总数一模一样,说它只是噪音(2026-09-26 被
+ `probe-intent-search.mjs` 的场景 1b 抓出来过)。 */}
           {s.emptyFilter ? (
             <>没有提取到具体条件 —— 下面是全部 {items.length} 件在售内容</>
           ) : s.results.length > 0 ? (
             <>
-              找到 <span className="text-neutral-200 tnum">{s.results.length}</span> 件 · {s.summary}
+              找到 <span className="text-neutral-200 tnum">{s.results.length}</span> 件 ·{' '}
+              {s.summary}
             </>
           ) : (
             // ⚠️ 这个分支只在"有筛条件且筛完为空"时进来。另外两种"没有"分别由
             // 上面那一支和 `ExplorePage` 的链上 0 件负责(方案 §14.2)
-            <>{s.summary} 下一件都没有 —— 广场上现在共有 {items.length} 件在售。</>
+            <>
+              {s.summary} 下一件都没有 —— 广场上现在共有 {items.length} 件在售。
+            </>
           )}
         </p>
       )}
@@ -222,7 +232,15 @@ export function IntentSearch({ items }: { items: readonly CatalogEntry[] }) {
  * 两行绑在同一个 `<li>` 里 —— 让"问"和"答"在结构上就分不开,
  * 而不是靠视觉上的相邻。
  */
-function TurnRow({ turn, onRetry, onManual }: { turn: Turn; onRetry: () => void; onManual: () => void }) {
+function TurnRow({
+  turn,
+  onRetry,
+  onManual,
+}: {
+  turn: Turn
+  onRetry: () => void
+  onManual: () => void
+}) {
   const o = turn.outcome
   return (
     <li className="space-y-1">
@@ -237,7 +255,9 @@ function TurnRow({ turn, onRetry, onManual }: { turn: Turn; onRetry: () => void;
           {o.kind === 'parsed' ? (
             <p className="text-xs leading-relaxed text-accent-soft">{o.conditions}</p>
           ) : (
-            <p className="text-xs leading-relaxed text-muted">{OUTCOME_TEXT[o.kind === 'degraded' ? o.reason : 'failed']}</p>
+            <p className="text-xs leading-relaxed text-muted">
+              {OUTCOME_TEXT[o.kind === 'degraded' ? o.reason : 'failed']}
+            </p>
           )}
 
           {/* ⚠️ `not_configured` **不给重试按钮** —— 理由见下面那张表的注释 */}

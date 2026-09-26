@@ -34,7 +34,7 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
             key={c.uid}
             onClick={() => connect({ connector: c })}
             disabled={isPending}
-            className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
+            className="w-full rounded-xl btn-primary px-4 py-3 text-sm font-medium transition hover:brightness-110 disabled:opacity-50"
           >
             {isPending ? '连接中…' : `连接 ${c.name}`}
           </button>
@@ -51,7 +51,7 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
         className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm transition ${
           isConnected
             ? 'border-line bg-surface text-neutral-100 hover:border-line/80 hover:bg-surface-2'
-            : 'border-transparent bg-accent text-white hover:brightness-110'
+            : 'border-transparent btn-primary hover:brightness-110'
         }`}
       >
         {isConnected ? (
@@ -113,7 +113,7 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
                       setOpen(false)
                     }}
                     disabled={isSwitching}
-                    className="mb-1 w-full rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
+                    className="mb-1 w-full rounded-lg btn-primary px-3 py-2 text-sm font-medium transition hover:brightness-110 disabled:opacity-50"
                   >
                     {isSwitching ? '切换中…' : `切换到 ${CHAIN.name}`}
                   </button>

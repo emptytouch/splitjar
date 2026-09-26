@@ -32,7 +32,7 @@ export function ContentCard({ item }: { item: CatalogEntry }) {
     <li className="flex">
       <Link
         to={to}
-        className="group flex w-full flex-col overflow-hidden rounded-2xl border border-line bg-surface/70 transition-colors hover:border-accent"
+        className="group flex w-full flex-col overflow-hidden rounded-3xl glass glass-edge transition-[border-color,box-shadow] hover:border-glow/50 hover:shadow-card-hover"
       >
         <Preview item={item} />
 
