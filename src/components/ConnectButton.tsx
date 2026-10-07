@@ -1,8 +1,21 @@
 import { useState } from 'react'
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi'
 import { CHAIN } from '../../shared/chain'
+import { hasWalletConnect } from '../lib/wagmi'
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
+
+/**
+ * 手机上扫码后最容易撞到的死路:手机自带浏览器(相机 / 微信扫一扫打开的那个)
+ * 里**没有注入式钱包**,而 WalletConnect 没配时又没第二条路 —— 结果就是
+ * 干瞪一句"没检测到钱包",用户不知道下一步该干嘛。
+ *
+ * ⚠️ 这句话必须说清"用钱包 App 的**内置浏览器**打开",而不是让它去装扩展 ——
+ * 手机上是装不了浏览器扩展的。
+ */
+const NO_WALLET_HINT = hasWalletConnect
+  ? '没检测到浏览器钱包扩展。用列表里的 WalletConnect 扫码连接手机钱包。'
+  : '没检测到浏览器钱包。桌面上装一个 Core Wallet 扩展就行;手机上请用 Core Wallet(或 MetaMask)App 的内置浏览器打开这个链接 —— 手机自带的浏览器(相机、微信扫一扫打开的那个)里没有钱包,连不上。'
 
 const itemCls =
   'w-full rounded-lg px-3 py-2 text-left text-sm text-neutral-200 transition hover:bg-white/[0.06] disabled:opacity-50'
@@ -25,9 +38,7 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
     return (
       <div className="space-y-2">
         {connectors.length === 0 && (
-          <p className="text-xs leading-relaxed text-muted">
-            没检测到浏览器钱包。装一个 Core Wallet 扩展,或等 WalletConnect 配好后再来。
-          </p>
+          <p className="text-xs leading-relaxed text-muted">{NO_WALLET_HINT}</p>
         )}
         {connectors.map((c) => (
           <button
@@ -76,9 +87,7 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
               <>
                 <p className="px-3 py-2 text-[11px] text-muted">选择钱包</p>
                 {connectors.length === 0 && (
-                  <p className="px-3 pb-2 text-xs leading-relaxed text-muted">
-                    没检测到浏览器钱包扩展。
-                  </p>
+                  <p className="px-3 pb-2 text-xs leading-relaxed text-muted">{NO_WALLET_HINT}</p>
                 )}
                 {connectors.map((c) => (
                   <button
