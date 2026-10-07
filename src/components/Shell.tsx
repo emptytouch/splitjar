@@ -34,7 +34,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 export function BuyerShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
-      <header className="border-b border-white/[0.06] bg-ink/60 backdrop-blur-2xl">
+      {/*
+        ⚠️ `sticky z-50` 是**必须的**,不是装饰:
+        `backdrop-blur-2xl`(= `backdrop-filter`)会让这个 header 变成**层叠上下文**,
+        而它没有 z-index 时按 DOM 顺序绘制 —— `<main>` 在它后面,
+        于是「连接钱包」那个下拉面板(absolute z-50)被困在 header 的上下文里,
+        **被下面的分账列表盖住**。加了 z-50,整个 header 上下文才画在 main 之上。
+        创作者壳(下面那个)一直是 `sticky z-50`,所以只有买家壳踩了这个坑。
+      */}
+      <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-ink/60 backdrop-blur-2xl">
         <div className="mx-auto flex h-14 w-full max-w-md items-center gap-6 px-5">
           <Link to="/" className="flex shrink-0 items-center gap-2.5">
             <span className="h-2.5 w-2.5 rounded-full bg-brand shadow-[0_0_14px_rgba(232,65,66,0.85)]" />

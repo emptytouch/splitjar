@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi'
 import { CHAIN } from '../../shared/chain'
 import { hasWalletConnect } from '../lib/wagmi'
@@ -26,10 +26,35 @@ const itemCls =
  */
 export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }) {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const { address, isConnected, chainId } = useAccount()
   const { connectors, connect, isPending, error } = useConnect()
   const { disconnect } = useDisconnect()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
+
+  /**
+   * 点面板外面就关闭。
+   *
+   * ⚠️ 为什么不是常见的那个 `<div className="fixed inset-0" onClick={close} />` 遮罩:
+   * 顶栏带 `backdrop-filter`,而它会成为 **`fixed` 定位的包含块** ——
+   * 那个遮罩实际只覆盖顶栏那一条(约 56px 高),点页面正文根本关不掉面板。
+   * 在 document 上监听则与祖先的样式无关。
+   */
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   const wrongChain = isConnected && chainId !== CHAIN.id
   const firstError = error?.message.split('\n')[0]
@@ -56,7 +81,7 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <button
         onClick={() => setOpen((o) => !o)}
         className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm transition ${
@@ -79,9 +104,6 @@ export function ConnectButton({ variant = 'nav' }: { variant?: 'nav' | 'block' }
 
       {open && (
         <>
-          {/* 点任意处关闭 */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-
           <div className="absolute right-0 top-full z-50 mt-2 w-[17rem] rounded-xl border border-line bg-surface p-2 shadow-2xl shadow-black/60">
             {!isConnected ? (
               <>
